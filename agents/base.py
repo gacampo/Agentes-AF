@@ -11,6 +11,7 @@ class BaseAgent:
     name: str = "BaseAgent"
     description: str = ""
     system_prompt: str = ""
+    max_tokens: int = 8192
 
     def build_user_prompt(self, company: str, context: dict[str, str] | None = None) -> str:
         """Construye el prompt de usuario con el nombre de la compañía y contexto previo."""
@@ -25,4 +26,4 @@ class BaseAgent:
     def run(self, company: str, context: dict[str, str] | None = None) -> str:
         """Ejecuta el agente y retorna su análisis como texto."""
         user_prompt = self.build_user_prompt(company, context)
-        return ask(self.system_prompt, user_prompt)
+        return ask(self.system_prompt, user_prompt, max_tokens=self.max_tokens)

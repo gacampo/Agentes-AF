@@ -10,12 +10,12 @@ def get_client() -> anthropic.Anthropic:
     return anthropic.Anthropic()
 
 
-def ask(system_prompt: str, user_prompt: str, model: str = "claude-sonnet-4-20250514") -> str:
+def ask(system_prompt: str, user_prompt: str, model: str = "claude-sonnet-4-20250514", max_tokens: int = 8192) -> str:
     """Envía un prompt al modelo y retorna la respuesta como texto."""
     client = get_client()
     message = client.messages.create(
         model=model,
-        max_tokens=8192,
+        max_tokens=max_tokens,
         system=system_prompt,
         messages=[{"role": "user", "content": user_prompt}],
     )
