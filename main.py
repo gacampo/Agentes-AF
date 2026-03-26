@@ -28,6 +28,7 @@ from agents import (
     MultidisciplinaryThinking,
     OrganizadorPrincipal,
     ConsejoDeEspecialistas,
+    PortfolioManager,
 )
 
 console = Console()
@@ -40,6 +41,7 @@ def run_analysis(company: str, output_dir: str | None = None) -> dict[str, str]:
     Fase 2 (Agente 6): Pensamiento multidisciplinario con contexto de fase 1.
     Fase 3 (Agente 7): Consolidación de todos los hallazgos.
     Fase 4 (Agente 8): Tesis de inversión final.
+    Fase 5 (Agente 9): Decisión de alocación al portafolio.
     """
     results: dict[str, str] = {}
 
@@ -54,8 +56,8 @@ def run_analysis(company: str, output_dir: str | None = None) -> dict[str, str]:
 
     console.print(Panel(
         f"[bold cyan]Analizando: {company}[/bold cyan]\n\n"
-        "8 agentes especializados trabajarán en secuencia para\n"
-        "construir una tesis de inversión integral.",
+        "9 agentes especializados trabajarán en secuencia para\n"
+        "construir una tesis de inversión integral y decidir alocación al portafolio.",
         title="🔍 Agentes-AF",
         border_style="cyan",
     ))
@@ -122,15 +124,35 @@ def run_analysis(company: str, output_dir: str | None = None) -> dict[str, str]:
     results[agent8.name] = result
     console.print(f"  ✓ {agent8.name} completado ({elapsed:.1f}s)\n")
 
+    # Fase 5: Portfolio Manager (decisión de alocación)
+    console.print("\n[bold yellow]═══ Fase 5: Decisión de portafolio (Agente 9) ═══[/bold yellow]\n")
+    agent9 = PortfolioManager()
+    with Progress(
+        SpinnerColumn(),
+        TextColumn(f"[bold green]{agent9.name}[/bold green] evaluando alocación..."),
+        console=console,
+    ) as progress:
+        task = progress.add_task("", total=None)
+        start = time.time()
+        result = agent9.run(company, context=results)
+        elapsed = time.time() - start
+    results[agent9.name] = result
+    console.print(f"  ✓ {agent9.name} completado ({elapsed:.1f}s)\n")
+
     # Guardar resultados
     if output_dir:
         save_results(company, results, output_dir)
 
-    # Mostrar resultado final
+    # Mostrar resultado final: tesis + decisión de portafolio
     console.print(Panel(
         Markdown(results["El Consejo de los Especialistas"]),
         title="📋 Tesis de inversión final",
         border_style="green",
+    ))
+    console.print(Panel(
+        Markdown(results["Portfolio Manager"]),
+        title="💼 Decisión de portafolio",
+        border_style="magenta",
     ))
 
     return results
@@ -151,6 +173,7 @@ def save_results(company: str, results: dict[str, str], output_dir: str) -> None
         "Multidisciplinary Thinking": "06_pensamiento_multidisciplinario.md",
         "Organizador Principal": "07_resumen_consolidado.md",
         "El Consejo de los Especialistas": "08_tesis_inversion.md",
+        "Portfolio Manager": "09_portfolio_manager.md",
     }
 
     for agent_name, content in results.items():

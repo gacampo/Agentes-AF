@@ -6,6 +6,7 @@ from agents.a5_customer_value import CustomerValueDurability
 from agents.a6_multidisciplinary import MultidisciplinaryThinking
 from agents.a7_organizer import OrganizadorPrincipal
 from agents.a8_council import ConsejoDeEspecialistas
+from agents.a9_portfolio_manager import PortfolioManager
 
 __all__ = [
     "BusinessModelClarifier",
@@ -16,4 +17,5 @@ __all__ = [
     "MultidisciplinaryThinking",
     "OrganizadorPrincipal",
     "ConsejoDeEspecialistas",
+    "PortfolioManager",
 ]
