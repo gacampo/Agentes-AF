@@ -18,6 +18,7 @@ QA_CATALOG_FILE = "qa_catalog.md"
 class QAReviewer(BaseAgent):
     name = "QA Reviewer"
     description = "Audita la tesis completa contra el catálogo QA antes de publicar el rating"
+    model = "claude-haiku-4-5-20251001"
     max_tokens = 8192
 
     system_prompt = """Sos el Agente 10 (QA Reviewer) del sistema Agentes-AF. Tu trabajo NO es analizar
@@ -53,11 +54,11 @@ Regla de aplicabilidad de checks:
 Formato de salida: tabla con columnas ID | Resultado | Evidencia, seguida del
 veredicto final en una línea destacada."""
 
-    def build_user_prompt(self, company: str, context: dict[str, str] | None = None) -> str:
-        """Construye el prompt inyectando el catálogo QA y el output acumulado de los agentes 1-9."""
+    def build_user_prompt(self, company: str) -> str:
+        """Construye el prompt inyectando el catálogo QA. El contexto acumulado
+        llega por separado como bloque cacheado via build_cached_context()."""
         parts = [f"Compañía auditada: **{company}**\n"]
 
-        # Cargar catálogo QA
         catalog_path = Path(QA_CATALOG_FILE)
         if catalog_path.exists():
             catalog_text = catalog_path.read_text(encoding="utf-8")
@@ -67,16 +68,4 @@ veredicto final en una línea destacada."""
         parts.append(catalog_text)
         parts.append("═══ FIN CATÁLOGO QA ═══\n")
 
-        # Tesis completa de los agentes 1-9
-        if context:
-            parts.append("═══ TESIS COMPLETA (AGENTES 1-9) ═══")
-            for agent_name, output in context.items():
-                parts.append(f"\n--- {agent_name} ---\n{output}")
-            parts.append("\n═══ FIN DE LA TESIS ═══\n")
-
         return "\n".join(parts)
-
-    def run(self, company: str, context: dict[str, str] | None = None) -> str:
-        """Ejecuta la auditoría QA y retorna el reporte."""
-        user_prompt = self.build_user_prompt(company, context)
-        return ask(self.system_prompt, user_prompt, max_tokens=self.max_tokens)
