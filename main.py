@@ -30,6 +30,7 @@ from agents import (
     ConsejoDeEspecialistas,
     PortfolioManager,
 )
+from agents.a10_qa_reviewer import QAReviewer
 
 console = Console()
 
@@ -42,6 +43,7 @@ def run_analysis(company: str, output_dir: str | None = None) -> dict[str, str]:
     Fase 3 (Agente 7): Consolidación de todos los hallazgos.
     Fase 4 (Agente 8): Tesis de inversión final.
     Fase 5 (Agente 9): Decisión de alocación al portafolio.
+    Fase 6 (Agente 10): Auditoría QA contra catálogo de checks.
     """
     results: dict[str, str] = {}
 
@@ -56,8 +58,9 @@ def run_analysis(company: str, output_dir: str | None = None) -> dict[str, str]:
 
     console.print(Panel(
         f"[bold cyan]Analizando: {company}[/bold cyan]\n\n"
-        "9 agentes especializados trabajarán en secuencia para\n"
-        "construir una tesis de inversión integral y decidir alocación al portafolio.",
+        "10 agentes especializados trabajarán en secuencia para\n"
+        "construir una tesis de inversión integral, decidir alocación al portafolio\n"
+        "y auditar la calidad del proceso.",
         title="🔍 Agentes-AF",
         border_style="cyan",
     ))
@@ -139,11 +142,26 @@ def run_analysis(company: str, output_dir: str | None = None) -> dict[str, str]:
     results[agent9.name] = result
     console.print(f"  ✓ {agent9.name} completado ({elapsed:.1f}s)\n")
 
+    # Fase 6: QA Reviewer (auditoría contra catálogo)
+    console.print("\n[bold yellow]═══ Fase 6: Auditoría QA (Agente 10) ═══[/bold yellow]\n")
+    agent10 = QAReviewer()
+    with Progress(
+        SpinnerColumn(),
+        TextColumn(f"[bold green]{agent10.name}[/bold green] auditando..."),
+        console=console,
+    ) as progress:
+        task = progress.add_task("", total=None)
+        start = time.time()
+        result = agent10.run(company, context=results)
+        elapsed = time.time() - start
+    results[agent10.name] = result
+    console.print(f"  ✓ {agent10.name} completado ({elapsed:.1f}s)\n")
+
     # Guardar resultados
     if output_dir:
         save_results(company, results, output_dir)
 
-    # Mostrar resultado final: tesis + decisión de portafolio
+    # Mostrar resultado final: tesis + decisión de portafolio + auditoría QA
     console.print(Panel(
         Markdown(results["El Consejo de los Especialistas"]),
         title="📋 Tesis de inversión final",
@@ -153,6 +171,11 @@ def run_analysis(company: str, output_dir: str | None = None) -> dict[str, str]:
         Markdown(results["Portfolio Manager"]),
         title="💼 Decisión de portafolio",
         border_style="magenta",
+    ))
+    console.print(Panel(
+        Markdown(results["QA Reviewer"]),
+        title="🔎 Auditoría QA",
+        border_style="yellow",
     ))
 
     return results
@@ -174,6 +197,7 @@ def save_results(company: str, results: dict[str, str], output_dir: str) -> None
         "Organizador Principal": "07_resumen_consolidado.md",
         "El Consejo de los Especialistas": "08_tesis_inversion.md",
         "Portfolio Manager": "09_portfolio_manager.md",
+        "QA Reviewer": "10_qa_review.md",
     }
 
     for agent_name, content in results.items():
