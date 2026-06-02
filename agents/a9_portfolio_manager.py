@@ -112,11 +112,11 @@ Tu output debe incluir:
 - Formato: Markdown profesional.
 - Esto NO es asesoramiento financiero."""
 
-    def build_user_prompt(self, company: str, context: dict[str, str] | None = None) -> str:
-        """Construye el prompt incluyendo el estado actual del portafolio."""
+    def build_user_prompt(self, company: str) -> str:
+        """Construye el prompt con el estado actual del portafolio. El contexto acumulado
+        llega por separado como bloque cacheado via build_cached_context()."""
         parts = [f"Compañía evaluada: **{company}**\n"]
 
-        # Cargar portafolio actual
         portfolio = load_portfolio()
         parts.append("═══ ESTADO ACTUAL DEL PORTAFOLIO ═══")
         if portfolio["posiciones"]:
@@ -129,7 +129,6 @@ Tu output debe incluir:
                     f"| {pos['empresa']} | {pos['ticker']} | {pos['sector']} "
                     f"| {pos['pais']} | {pos['alocacion_pct']}% | {pos.get('descuento_fv', 'N/A')} |"
                 )
-            # Concentración por sector
             sector_totals: dict[str, float] = {}
             country_totals: dict[str, float] = {}
             for pos in portfolio["posiciones"]:
@@ -144,16 +143,4 @@ Tu output debe incluir:
         parts.append(f"\nReglas: {json.dumps(portfolio['reglas'], ensure_ascii=False)}")
         parts.append("═══ FIN ESTADO PORTAFOLIO ═══\n")
 
-        # Contexto de agentes previos (especialmente el agente 8)
-        if context:
-            parts.append("═══ ANÁLISIS COMPLETO DE LA COMPAÑÍA ═══")
-            for agent_name, output in context.items():
-                parts.append(f"\n--- {agent_name} ---\n{output}")
-            parts.append("\n═══ FIN DEL ANÁLISIS ═══\n")
-
         return "\n".join(parts)
-
-    def run(self, company: str, context: dict[str, str] | None = None) -> str:
-        """Ejecuta el agente y retorna su análisis."""
-        user_prompt = self.build_user_prompt(company, context)
-        return ask(self.system_prompt, user_prompt, max_tokens=self.max_tokens)
