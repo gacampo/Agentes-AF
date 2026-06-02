@@ -23,7 +23,8 @@ def main():
     print()
 
     agent = QAReviewer()
-    reporte = agent.run(company="WOSG", context=tesis)
+    # El nuevo agente espera context como dict[str, str]; usamos una clave descriptiva
+    reporte = agent.run(company="WOSG", context={"Tesis simulada (Agentes 1-5)": tesis})
 
     print(reporte)
     print()

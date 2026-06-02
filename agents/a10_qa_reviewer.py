@@ -1,92 +1,70 @@
 """Agente 10: QA Reviewer.
 
-Revisa críticamente la tesis de inversión completa buscando errores factuales,
-inconsistencias lógicas, datos incorrectos y afirmaciones no sustentadas.
+Audita la tesis completa producida por los Agentes 1-9 contra el catálogo de checks
+definido en qa_catalog.md. No analiza la empresa ni modifica el rating.
 """
 
+from __future__ import annotations
+
+from pathlib import Path
+
 from agents.base import BaseAgent
+from utils.llm import ask
+
+
+QA_CATALOG_FILE = "qa_catalog.md"
 
 
 class QAReviewer(BaseAgent):
     name = "QA Reviewer"
-    description = "Control de calidad — Detecta errores factuales, inconsistencias y datos incorrectos en la tesis."
+    description = "Audita la tesis completa contra el catálogo QA antes de publicar el rating"
     max_tokens = 8192
 
-    system_prompt = """Sos el QA Reviewer del equipo de análisis de inversión. Tu único trabajo es revisar
-críticamente la tesis de inversión completa y detectar TODOS los errores, inconsistencias y
-afirmaciones problemáticas.
+    system_prompt = """Sos el Agente 10 (QA Reviewer) del sistema Agentes-AF. Tu trabajo NO es analizar
+la empresa: es AUDITAR la tesis ya producida por los Agentes 1-9 contra el catálogo
+de checks que se te entrega. No opinás sobre la inversión ni cambiás el rating.
 
-═══ TU MISIÓN ═══
+Recibís: (a) el catálogo de checks vigente, y (b) la tesis completa de los Agentes 1-9.
 
-Actuás como el "abogado del diablo" riguroso. Leés la tesis completa y marcás:
+Para cada check del catálogo devolvé una fila con: ID, resultado (PASA / FALLA / N/A)
+y una línea de evidencia concreta citando el texto de la tesis que lo justifica.
 
-1. **ERRORES FACTUALES**: Datos numéricos incorrectos (precios, márgenes, múltiplos, fechas,
-   edades, nombres, cargos). Cualquier cifra que no coincida con la realidad conocida.
+Lógica de severidad:
+- Si falla algún check BLOQUEANTE -> veredicto DEVUELTO.
+- Si solo fallan ADVERTENCIAS -> veredicto APROBADO CON OBSERVACIONES.
+- Si no falla nada -> veredicto APROBADO.
 
-2. **INCONSISTENCIAS INTERNAS**: Contradicciones entre secciones, números que no cuadran
-   entre sí, afirmaciones que se contradicen dentro del mismo documento.
+Si el veredicto es DEVUELTO, listá exactamente qué corregir y a qué agente vuelve
+cada falla. No inventes checks fuera del catálogo. No reescribas la tesis, solo
+señalás qué corregir. Sé literal y específico citando la evidencia textual.
 
-3. **DATOS MEZCLADOS O CONFUNDIDOS**: Métricas de una empresa atribuidas a otra, benchmarks
-   incorrectos, comparaciones inválidas.
+Formato de salida: tabla con columnas ID | Resultado | Evidencia, seguida del
+veredicto final en una línea destacada."""
 
-4. **AFIRMACIONES SIN SUSTENTO**: Claims importantes presentados como hechos sin evidencia.
+    def build_user_prompt(self, company: str, context: dict[str, str] | None = None) -> str:
+        """Construye el prompt inyectando el catálogo QA y el output acumulado de los agentes 1-9."""
+        parts = [f"Compañía auditada: **{company}**\n"]
 
-5. **ERRORES DE LÓGICA FINANCIERA**: Márgenes mal calculados, múltiplos inconsistentes,
-   lógicas de valoración incorrectas.
+        # Cargar catálogo QA
+        catalog_path = Path(QA_CATALOG_FILE)
+        if catalog_path.exists():
+            catalog_text = catalog_path.read_text(encoding="utf-8")
+        else:
+            catalog_text = "(catálogo no encontrado — verificar que qa_catalog.md existe en la raíz del repo)"
+        parts.append("═══ CATÁLOGO QA VIGENTE ═══")
+        parts.append(catalog_text)
+        parts.append("═══ FIN CATÁLOGO QA ═══\n")
 
-6. **FLAGS DE RIESGO IGNORADOS**: Factores de riesgo importantes que la tesis minimiza o ignora.
-
-═══ FORMATO DE REPORTE QA ═══
-
-Producí un reporte estructurado así:
-
----
-
-## REPORTE QA — [EMPRESA] — [FECHA]
-
-### RESUMEN EJECUTIVO
-Cantidad total de issues encontrados, clasificados por severidad (CRÍTICO / ALTO / MEDIO / BAJO).
-
-### ERRORES CRÍTICOS (invalidan la tesis o engañan gravemente al lector)
-Para cada error:
-- **[ID-C01]** Sección afectada: ...
-  - Afirmación en la tesis: "..."
-  - Error: descripción precisa del error
-  - Corrección sugerida: dato correcto o qué verificar
-
-### ERRORES ALTOS (impactan materialmente la valoración o el análisis)
-(mismo formato)
-
-### INCONSISTENCIAS MEDIAS (contradicciones o imprecisiones relevantes)
-(mismo formato)
-
-### FLAGS BAJOS (observaciones menores o áreas a verificar)
-(mismo formato)
-
-### VEREDICTO FINAL
-¿La tesis es utilizable tal como está? ¿Necesita revisión menor, mayor, o es rechazada?
-Recomendación concreta sobre qué corregir antes de usar esta tesis para tomar decisiones.
-
----
-
-REGLAS ESTRICTAS:
-- Sé despiadadamente objetivo. Tu trabajo es encontrar errores, no validar el análisis.
-- Citá SIEMPRE la afirmación exacta de la tesis que estás cuestionando.
-- Si un número parece incorrecto, indicá el valor que creés correcto y por qué.
-- No ignores errores por parecer menores — todos importan.
-- Respondé en español.
-- Formato: Markdown profesional."""
-
-    def build_user_prompt(self, company: str, context: str | None = None) -> str:
-        parts = [f"Compañía a revisar: **{company}**\n"]
+        # Tesis completa de los agentes 1-9
         if context:
-            parts.append("═══ TESIS DE INVERSIÓN A REVISAR ═══\n")
-            parts.append(context)
+            parts.append("═══ TESIS COMPLETA (AGENTES 1-9) ═══")
+            for agent_name, output in context.items():
+                parts.append(f"\n--- {agent_name} ---\n{output}")
             parts.append("\n═══ FIN DE LA TESIS ═══\n")
-        parts.append("Revisá exhaustivamente esta tesis e identificá TODOS los errores y problemas.")
+
         return "\n".join(parts)
 
-    def run(self, company: str, context: str | None = None) -> str:
+    def run(self, company: str, context: dict[str, str] | None = None) -> str:
+        """Ejecuta la auditoría QA y retorna el reporte."""
         user_prompt = self.build_user_prompt(company, context)
-        from utils.llm import ask
         return ask(self.system_prompt, user_prompt, max_tokens=self.max_tokens)
