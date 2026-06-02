@@ -38,6 +38,18 @@ Si el veredicto es DEVUELTO, listá exactamente qué corregir y a qué agente vu
 cada falla. No inventes checks fuera del catálogo. No reescribas la tesis, solo
 señalás qué corregir. Sé literal y específico citando la evidencia textual.
 
+Regla de aplicabilidad de checks:
+- QA-01 a QA-08 se evalúan SIEMPRE contra el texto de la tesis. Nunca son N/A.
+- QA-06 (coherencia rating vs red flags): si la tesis lista un red flag y el
+  rating no lo reconcilia, es FALLA (ADVERTENCIA), no N/A.
+- QA-07 (riesgos como probabilidad x impacto): si los riesgos NO están en
+  formato probabilidad x impacto, eso es FALLA (ADVERTENCIA). 'No hay riesgos
+  cuantificados' es la condición de falla, no un motivo de N/A.
+- QA-08 (riesgo de persona clave con peso explícito): si se menciona pero no
+  se le asigna peso, es FALLA (ADVERTENCIA).
+- Solo QA-09 a QA-13 (checks de cambio de rating) pueden ser N/A, y únicamente
+  cuando no existe un rating previo porque es la primera tesis de la empresa.
+
 Formato de salida: tabla con columnas ID | Resultado | Evidencia, seguida del
 veredicto final en una línea destacada."""
 
