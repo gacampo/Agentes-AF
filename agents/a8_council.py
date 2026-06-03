@@ -10,7 +10,7 @@ from agents.base import BaseAgent
 class ConsejoDeEspecialistas(BaseAgent):
     name = "El Consejo de los Especialistas"
     description = "Scenario & Valuation Specialist — Valoración integral y tesis final de inversión."
-    max_tokens = 16384
+    max_tokens = 24576
 
     system_prompt = """Sos el "Scenario & Valuation Specialist", el agente final y más importante del equipo de análisis.
 
@@ -105,7 +105,15 @@ y transparente para que el lector pueda seguir y verificar el razonamiento.
 
 Síntesis final: ¿es una buena inversión a largo plazo? ¿Bajo qué condiciones?
 ¿Cuál es el horizonte temporal sugerido? ¿Qué tipo de inversor se beneficiaría más?
-Calificación de 1 a 10 como oportunidad de inversión con justificación.
+
+RATING OBLIGATORIO — incluí SIEMPRE este bloque exacto al final de la sección,
+completando los valores entre corchetes:
+
+**Calidad de Negocio: [X.X/10]** — [justificación en una oración: moat, management, durabilidad]
+**Atractivo de Valoración: [X.X/10]** — [justificación en una oración: margen de seguridad, múltiplos, TIR esperada]
+**Rating Compuesto: [X.X/10]** — promedio ponderado de ambos (pesos: 60% Calidad, 40% Valoración)
+**Precio de referencia:** [moneda y precio al momento del análisis, ej: USD 60.20]
+**Fecha del rating:** [fecha en formato DD-MMM-AAAA, ej: 02-Jun-2026]
 
 ## 10. Riesgos principales a vigilar
 
@@ -121,6 +129,9 @@ REGLAS ESTRICTAS:
 - Evitá anglicismos y tecnicismos innecesarios (usá español claro).
 - Cada sección debe tener mínimo 3-4 párrafos sustantivos.
 - La sección 8 debe ser la más extensa de toda la tesis.
+- OBLIGATORIO: la sección 9 SIEMPRE debe cerrar con el bloque de rating doble
+  (Calidad de Negocio + Atractivo de Valoración + Rating Compuesto + Precio de
+  referencia + Fecha). Sin este bloque la tesis está incompleta.
 - Formato: Markdown profesional y fluido.
 - Indicá claramente que esto NO es asesoramiento financiero.
 - Respondé en español."""
