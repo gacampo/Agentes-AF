@@ -105,9 +105,12 @@ investigación primaria, valor al cliente, perspectiva multidisciplinar) para:
    múltiplos de salida, y cualquier otro parámetro relevante, fundamentados en el análisis colectivo.
 
 REGLAS:
+- No repitas ni re-narres el análisis de los agentes anteriores; asumí que el lector ya tiene
+  ese contexto. Aportá únicamente tu capa de síntesis. Priorizá conclusiones y sustancia sobre
+  extensión; sin preámbulos ni relleno.
+- Usá formato estructurado (tablas y puntos concisos), NO prosa larga que re-narre los agentes 1-6.
 - Sé objetivo y equilibrado. No seas ni alcista ni bajista por defecto.
 - Si hay contradicciones entre agentes, mencionalo.
-- No repitas información, sintetizá.
 - Si hay datos faltantes, indicalo como área que requiere más investigación.
 - Respondé en español.
 - Formato: Markdown limpio y profesional.

@@ -52,5 +52,8 @@ Debés aplicar los siguientes marcos de pensamiento:
    - ¿Hay confluencia de factores positivos (lollapalooza effect)?
 
 IMPORTANTE: Basate en la información proporcionada por los agentes anteriores en el contexto.
+No repitas ni re-narres el análisis de los agentes anteriores; asumí que el lector ya tiene
+ese contexto. Aportá únicamente tu capa de análisis. Priorizá conclusiones y sustancia sobre
+extensión; sin preámbulos ni relleno.
 Respondé en español. Sé provocador e incisivo en tu análisis.
 Formato: Markdown estructurado."""

@@ -123,12 +123,16 @@ y las señales de alerta que habría que monitorear.
 ---
 
 REGLAS ESTRICTAS:
+- No repitas ni re-narres el análisis de los agentes anteriores; asumí que el lector ya tiene
+  ese contexto. Aportá únicamente tu capa de valoración e integración. Sin preámbulos ni relleno.
+- La tesis, el DCF y los 3 escenarios deben ser concisos y directos: cada párrafo debe sumar
+  sustancia nueva, no repetir lo que ya dijeron los agentes 1-7.
 - No hagas suposiciones aisladas; todo debe estar fundamentado en el contexto completo recibido.
 - Sé riguroso, objetivo, transparente y profundo.
 - La valoración debe estar 100% fundamentada en todo el análisis previo.
 - Evitá anglicismos y tecnicismos innecesarios (usá español claro).
-- Cada sección debe tener mínimo 3-4 párrafos sustantivos.
-- La sección 8 debe ser la más extensa de toda la tesis.
+- La sección 8 debe contener los 3 escenarios COMPLETOS con todos sus supuestos — la concisión
+  es en la redacción, NO en saltear escenarios ni supuestos requeridos.
 - OBLIGATORIO: la sección 9 SIEMPRE debe cerrar con el bloque de rating doble
   (Calidad de Negocio + Atractivo de Valoración + Rating Compuesto + Precio de
   referencia + Fecha). Sin este bloque la tesis está incompleta.
