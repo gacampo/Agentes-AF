@@ -21,7 +21,10 @@ def ask(
     max_tokens: int = 8192,
     cached_context: str | None = None,
 ) -> str:
-    """Envía un prompt al modelo y retorna la respuesta como texto."""
+    """Envía un prompt al modelo y retorna la respuesta como texto.
+
+    Usa streaming para evitar el límite de timeout del SDK en respuestas largas.
+    """
     client = get_client()
 
     # Construir contenido del mensaje de usuario
@@ -30,17 +33,25 @@ def ask(
     else:
         user_content = user_prompt
 
-    message = client.messages.create(
+    text_chunks: list[str] = []
+    input_tokens = 0
+    output_tokens = 0
+
+    with client.messages.stream(
         model=model,
         max_tokens=max_tokens,
         system=system_prompt,
         messages=[{"role": "user", "content": user_content}],
-    )
+    ) as stream:
+        for text in stream.text_stream:
+            text_chunks.append(text)
+        final = stream.get_final_message()
+        input_tokens = final.usage.input_tokens
+        output_tokens = final.usage.output_tokens
 
-    usage = message.usage
     log_line = (
         f"[tokens] model={model} "
-        f"input={usage.input_tokens} output={usage.output_tokens}"
+        f"input={input_tokens} output={output_tokens}"
     )
     print(log_line)
 
@@ -53,4 +64,4 @@ def ask(
     except Exception:
         pass
 
-    return message.content[0].text
+    return "".join(text_chunks)
