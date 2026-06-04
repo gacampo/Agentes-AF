@@ -20,8 +20,10 @@
 | QA-11 | Sesgo | ¿El consenso se usa como dato y se explica el desvío? | ADVERTENCIA | ASTS S3 |
 | QA-12 | Sesgo | Cambio >0.5 pts: ¿hay 2+ hechos nuevos verificables? | BLOQUEANTE | ASTS S4 |
 | QA-13 | Sesgo | ¿Se nombró la evidencia contraria encontrada? | ADVERTENCIA | ASTS S5 |
-| QA-14 | Datos | ¿La valoración usa el precio de mercado actual provisto (con fecha, ajustado por splits), y no uno inferido/stale/pre-split? | BLOQUEANTE | BN split |
+| QA-14 | Datos | ¿TODO el análisis (todos los agentes) usa el precio actual post-split provisto, sin citar precios stale/pre-split en ningún agente? | BLOQUEANTE | BN split |
+| QA-15 | Coherencia | ¿Las afirmaciones cualitativas de valoración (descuento/premium, barato/caro, margen de seguridad) son coherentes con la aritmética? (Ej: no decir "descuento al NAV" cuando precio > NAV-mid.) | BLOQUEANTE | BN arit |
 
 ## Changelog
 - v1.0: catálogo inicial, 13 checks (origen WOSG + ASTS).
 - v1.1: agrega QA-14 (precio de mercado actual provisto por el usuario, BLOQUEANTE).
+- v1.2: reformula QA-14 (base del precio en todos los agentes); agrega QA-15 (coherencia aritmética de valoración, BLOQUEANTE).

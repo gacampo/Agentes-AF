@@ -94,8 +94,7 @@ def run_analysis(
     # Fase 1
     console.print("\n[bold yellow]═══ Fase 1: Análisis fundamental (Agentes 1-5) ═══[/bold yellow]\n")
     for agent in phase1_agents:
-        # El Agente 4 (Primary Research Analyst) recibe el precio de mercado
-        ctx = price_injection if agent.name == "Primary Research Analyst" else None
+        # Todos los agentes de fase 1 reciben el precio para evitar referencias stale/pre-split
         with Progress(
             SpinnerColumn(),
             TextColumn(f"[bold green]{agent.name}[/bold green] analizando..."),
@@ -103,7 +102,7 @@ def run_analysis(
         ) as progress:
             task = progress.add_task("", total=None)
             start = time.time()
-            result = agent.run(company, context=ctx)
+            result = agent.run(company, context=price_injection)
             elapsed = time.time() - start
 
         results[agent.name] = result
@@ -119,7 +118,7 @@ def run_analysis(
     ) as progress:
         task = progress.add_task("", total=None)
         start = time.time()
-        result = agent6.run(company, context=results)
+        result = agent6.run(company, context={**results, **price_injection})
         elapsed = time.time() - start
     results[agent6.name] = result
     console.print(f"  ✓ {agent6.name} completado ({elapsed:.1f}s)\n")
