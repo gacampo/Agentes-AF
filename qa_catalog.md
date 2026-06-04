@@ -1,4 +1,4 @@
-# CATÁLOGO QA — AGENTES-AF · v1.0
+# CATÁLOGO QA — AGENTES-AF · v1.1
 
 ## Severidad
 - BLOQUEANTE: una falla impide aprobar la tesis.
@@ -20,6 +20,8 @@
 | QA-11 | Sesgo | ¿El consenso se usa como dato y se explica el desvío? | ADVERTENCIA | ASTS S3 |
 | QA-12 | Sesgo | Cambio >0.5 pts: ¿hay 2+ hechos nuevos verificables? | BLOQUEANTE | ASTS S4 |
 | QA-13 | Sesgo | ¿Se nombró la evidencia contraria encontrada? | ADVERTENCIA | ASTS S5 |
+| QA-14 | Datos | ¿La valoración usa el precio de mercado actual provisto (con fecha, ajustado por splits), y no uno inferido/stale/pre-split? | BLOQUEANTE | BN split |
 
 ## Changelog
 - v1.0: catálogo inicial, 13 checks (origen WOSG + ASTS).
+- v1.1: agrega QA-14 (precio de mercado actual provisto por el usuario, BLOQUEANTE).

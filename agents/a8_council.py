@@ -123,6 +123,11 @@ y las señales de alerta que habría que monitorear.
 ---
 
 REGLAS ESTRICTAS:
+- PRECIO DE REFERENCIA: el contexto incluye un bloque "PRECIO DE MERCADO ACTUAL
+  provisto por el usuario". Usá ESE precio para todos los cálculos de escenarios,
+  margen de seguridad y TIR. Si hay notas de split, ajustá los valores por acción
+  a la base actual. Si el bloque indica que NO se proveyó precio, marcá la tesis
+  como PRELIMINAR e incluí una advertencia explícita al inicio de la sección 8.
 - No repitas ni re-narres el análisis de los agentes anteriores; asumí que el lector ya tiene
   ese contexto. Aportá únicamente tu capa de valoración e integración. Sin preámbulos ni relleno.
 - La tesis, el DCF y los 3 escenarios deben ser concisos y directos: cada párrafo debe sumar

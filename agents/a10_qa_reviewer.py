@@ -50,6 +50,9 @@ Regla de aplicabilidad de checks:
   se le asigna peso, es FALLA (ADVERTENCIA).
 - Solo QA-09 a QA-13 (checks de cambio de rating) pueden ser N/A, y únicamente
   cuando no existe un rating previo porque es la primera tesis de la empresa.
+- QA-14 (precio de mercado actual) se evalúa SIEMPRE. Nunca es N/A. Si la tesis
+  no referencia el bloque de precio provisto por el usuario (o lo ignora usando
+  un precio inferido), es FALLA BLOQUEANTE.
 
 Formato de salida: tabla con columnas ID | Resultado | Evidencia, seguida del
 veredicto final en una línea destacada."""

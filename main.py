@@ -35,7 +35,29 @@ from agents.a10_qa_reviewer import QAReviewer
 console = Console()
 
 
-def run_analysis(company: str, output_dir: str | None = None) -> dict[str, str]:
+def _build_price_context(precio_actual: float | None, fecha_precio: str, notas_corporativas: str) -> str:
+    """Construye el bloque de precio de mercado para inyectar en los agentes."""
+    if precio_actual is None:
+        return (
+            "⚠️ PRECIO DE MERCADO: No se proveyó precio actual. "
+            "La tesis debe marcarse como PRELIMINAR y advertir que el precio es estimado."
+        )
+    notas = notas_corporativas.strip() if notas_corporativas.strip() else "ninguna"
+    return (
+        f"PRECIO DE MERCADO ACTUAL provisto por el usuario: ${precio_actual:.2f} al {fecha_precio}. "
+        f"Ajustado por: {notas}. "
+        "Usá ESTE precio como referencia para escenarios, margen de seguridad y TIR. "
+        "NO infieras el precio de tus datos de entrenamiento, que pueden estar stale o en base pre-split."
+    )
+
+
+def run_analysis(
+    company: str,
+    precio_actual: float | None,
+    fecha_precio: str,
+    notas_corporativas: str,
+    output_dir: str | None = None,
+) -> dict[str, str]:
     """Ejecuta el pipeline completo de análisis para una compañía.
 
     Fase 1 (Agentes 1-5): Análisis independiente en paralelo conceptual.
@@ -46,6 +68,10 @@ def run_analysis(company: str, output_dir: str | None = None) -> dict[str, str]:
     Fase 6 (Agente 10): Auditoría QA contra catálogo de checks.
     """
     results: dict[str, str] = {}
+    price_context = _build_price_context(precio_actual, fecha_precio, notas_corporativas)
+    # El bloque de precio se inyecta en el contexto de los agentes 4, 7, 8 y 9
+    # bajo una clave especial que los demás agentes no ven en fase 1.
+    price_injection: dict[str, str] = {"__precio_mercado__": price_context}
 
     # === Fase 1: Agentes independientes (1-5) ===
     phase1_agents = [
@@ -68,6 +94,8 @@ def run_analysis(company: str, output_dir: str | None = None) -> dict[str, str]:
     # Fase 1
     console.print("\n[bold yellow]═══ Fase 1: Análisis fundamental (Agentes 1-5) ═══[/bold yellow]\n")
     for agent in phase1_agents:
+        # El Agente 4 (Primary Research Analyst) recibe el precio de mercado
+        ctx = price_injection if agent.name == "Primary Research Analyst" else None
         with Progress(
             SpinnerColumn(),
             TextColumn(f"[bold green]{agent.name}[/bold green] analizando..."),
@@ -75,7 +103,7 @@ def run_analysis(company: str, output_dir: str | None = None) -> dict[str, str]:
         ) as progress:
             task = progress.add_task("", total=None)
             start = time.time()
-            result = agent.run(company)
+            result = agent.run(company, context=ctx)
             elapsed = time.time() - start
 
         results[agent.name] = result
@@ -106,7 +134,7 @@ def run_analysis(company: str, output_dir: str | None = None) -> dict[str, str]:
     ) as progress:
         task = progress.add_task("", total=None)
         start = time.time()
-        result = agent7.run(company, context=results)
+        result = agent7.run(company, context={**results, **price_injection})
         elapsed = time.time() - start
     results[agent7.name] = result
     console.print(f"  ✓ {agent7.name} completado ({elapsed:.1f}s)\n")
@@ -122,7 +150,7 @@ def run_analysis(company: str, output_dir: str | None = None) -> dict[str, str]:
     ) as progress:
         task = progress.add_task("", total=None)
         start = time.time()
-        result = agent8.run(company, context=results)
+        result = agent8.run(company, context={**results, **price_injection})
         elapsed = time.time() - start
     results[agent8.name] = result
     console.print(f"  ✓ {agent8.name} completado ({elapsed:.1f}s)\n")
@@ -137,7 +165,7 @@ def run_analysis(company: str, output_dir: str | None = None) -> dict[str, str]:
     ) as progress:
         task = progress.add_task("", total=None)
         start = time.time()
-        result = agent9.run(company, context=results)
+        result = agent9.run(company, context={**results, **price_injection})
         elapsed = time.time() - start
     results[agent9.name] = result
     console.print(f"  ✓ {agent9.name} completado ({elapsed:.1f}s)\n")
@@ -242,8 +270,30 @@ def main():
         console.print("Configurá tu API key: export ANTHROPIC_API_KEY=sk-ant-...")
         sys.exit(1)
 
+    # Inputs de precio de mercado (interactivos)
+    console.print("\n[bold cyan]─── Precio de mercado ───[/bold cyan]")
+    precio_str = console.input(
+        "[yellow]Precio actual de mercado (ej: 54.20) — Enter para omitir: [/yellow]"
+    ).strip()
+    precio_actual: float | None = None
+    if precio_str:
+        try:
+            precio_actual = float(precio_str.replace(",", "."))
+        except ValueError:
+            console.print("[red]Precio inválido, se omite.[/red]")
+
+    fecha_precio = ""
+    notas_corporativas = ""
+    if precio_actual is not None:
+        fecha_precio = console.input(
+            "[yellow]Fecha del precio (ej: 04-Jun-2026): [/yellow]"
+        ).strip()
+        notas_corporativas = console.input(
+            "[yellow]Notas corporativas (splits, acciones vigentes — Enter para omitir): [/yellow]"
+        ).strip()
+
     output_dir = None if args.no_save else args.output
-    run_analysis(args.company, output_dir)
+    run_analysis(args.company, precio_actual, fecha_precio, notas_corporativas, output_dir)
 
 
 if __name__ == "__main__":
