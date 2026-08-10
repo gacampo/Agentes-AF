@@ -57,7 +57,8 @@ def test_metrics_json_detecta_cumple_inconsistente_y_rango_implausible():
 
 def test_scenarios_json_tir_y_rating_consistentes():
     data = {
-        "escenarios": [{"nombre": "base", "valor_intrinseco": 150, "precio_actual": 100, "tir_5y_pct": 8.4, "tir_10y_pct": 4.1}],
+        "escenarios": [{"nombre": "base", "valor_intrinseco_5y": 150, "valor_intrinseco_10y": 220,
+                         "precio_actual": 100, "tir_5y_pct": 8.4, "tir_10y_pct": 8.2}],
         "rating": {"calidad_negocio": 8.0, "atractivo_valoracion": 6.5, "rating_compuesto": 7.4,
                    "precio_referencia": 100, "fecha_rating": "10-Ago-2026"},
     }
@@ -66,13 +67,36 @@ def test_scenarios_json_tir_y_rating_consistentes():
 
 def test_scenarios_json_detecta_tir_inflada_y_rating_mal_calculado():
     data = {
-        "escenarios": [{"nombre": "base", "valor_intrinseco": 150, "precio_actual": 100, "tir_5y_pct": 45.0, "tir_10y_pct": 4.1}],
+        "escenarios": [{"nombre": "base", "valor_intrinseco_5y": 150, "valor_intrinseco_10y": 220,
+                         "precio_actual": 100, "tir_5y_pct": 45.0, "tir_10y_pct": 8.2}],
         "rating": {"calidad_negocio": 9.0, "atractivo_valoracion": 2.0, "rating_compuesto": 8.5,
                    "precio_referencia": 100, "fecha_rating": "10-Ago-2026"},
     }
     issues = validate_scenarios_json(data)
     assert any("TIR 5 años declarada" in i for i in issues)
     assert any("rating_compuesto declarado" in i for i in issues)
+
+
+def test_scenarios_json_no_da_falso_positivo_con_valor_intrinseco_distinto_por_horizonte():
+    """Regresión del hallazgo real en BRK.B: el escenario optimista tenía un
+    valor intrínseco de 710 a 5 años y 1.210 a 10 años (proyección con
+    crecimiento compuesto, no el mismo número dos veces). El schema viejo
+    (un solo campo 'valor_intrinseco') comparaba la TIR a 10 años contra el
+    valor del año 5 y disparaba un falso positivo. Con el campo separado,
+    no debería marcar nada."""
+    data = {
+        "escenarios": [{
+            "nombre": "optimista",
+            "valor_intrinseco_5y": 710,
+            "valor_intrinseco_10y": 1210,
+            "precio_actual": 521.80,
+            "tir_5y_pct": 8.5,   # implícita ~6.4% + recompras ~2% ≈ declarada, dentro de tolerancia
+            "tir_10y_pct": 10.5,  # implícita ~8.8% + recompras ≈ declarada, dentro de tolerancia
+        }],
+        "rating": {"calidad_negocio": 8.5, "atractivo_valoracion": 5.5, "rating_compuesto": 7.3,
+                   "precio_referencia": 521.80, "fecha_rating": "09-Aug-2026"},
+    }
+    assert validate_scenarios_json(data) == []
 
 
 # ═══════════════════════ validate_portfolio_json (Agente 9, bloqueante) ═══════════════════════
@@ -173,7 +197,7 @@ def test_agente8_anota_warning_visible_pero_no_bloquea():
 
     fake_bad = (
         "## 8. Escenarios\n\n```json\n"
-        '{"escenarios": [{"nombre": "base", "valor_intrinseco": 150, "precio_actual": 100, '
+        '{"escenarios": [{"nombre": "base", "valor_intrinseco_5y": 150, "valor_intrinseco_10y": 220, "precio_actual": 100, '
         '"tir_5y_pct": 45.0, "tir_10y_pct": 4.1}], "rating": {"calidad_negocio": 9, '
         '"atractivo_valoracion": 2, "rating_compuesto": 8.5, "precio_referencia": 100, "fecha_rating": "x"}}'
         "\n```"

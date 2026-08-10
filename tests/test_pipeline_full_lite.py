@@ -49,7 +49,7 @@ def _build_core_rules(scripted_ask):
     a8_lite = contains("Scenario & Valuation Specialist", "REFRESH TRIMESTRAL")
     a8_full = contains("Scenario & Valuation Specialist")
     a8_json = (
-        "```json\n{\"escenarios\": [{\"nombre\": \"base\", \"valor_intrinseco\": 150, \"precio_actual\": 100, "
+        "```json\n{\"escenarios\": [{\"nombre\": \"base\", \"valor_intrinseco_5y\": 150, \"valor_intrinseco_10y\": 220, \"precio_actual\": 100, "
         "\"tir_5y_pct\": 8.4, \"tir_10y_pct\": 4.1}], \"rating\": {\"calidad_negocio\": 8, "
         "\"atractivo_valoracion\": 6, \"rating_compuesto\": 7.2, \"precio_referencia\": 100, "
         "\"fecha_rating\": \"10-Ago-2026\"}}\n```"
@@ -58,7 +58,7 @@ def _build_core_rules(scripted_ask):
     scripted_ask.add(
         a8_full,
         "## 7. Calidad financiera\n\nTexto original.\n\n## 8. Tres escenarios...\n\nEscenarios ORIGINALES.\n\n"
-        + "```json\n{\"escenarios\": [{\"nombre\": \"base\", \"valor_intrinseco\": 120, \"precio_actual\": 100, "
+        + "```json\n{\"escenarios\": [{\"nombre\": \"base\", \"valor_intrinseco_5y\": 120, \"valor_intrinseco_10y\": 175, \"precio_actual\": 100, "
           "\"tir_5y_pct\": 3.7, \"tir_10y_pct\": 1.8}], \"rating\": {\"calidad_negocio\": 7, "
           "\"atractivo_valoracion\": 6, \"rating_compuesto\": 6.6, \"precio_referencia\": 100, "
           "\"fecha_rating\": \"01-Ene-2026\"}}\n```"
@@ -157,7 +157,7 @@ def test_pipeline_full_no_persiste_portafolio_si_a9_rompe_limites(isolated_env, 
     scripted_ask.add(a7_full, "## FASE A: R\n\nx\n\n## FASE B: MÉTRICAS FUNDAMENTALES\n\n```json\n{\"metricas\": []}\n```\n\n## FASE C: M\n\nx")
     scripted_ask.add(
         contains("Scenario & Valuation Specialist"),
-        "## 8. E\n\nx\n\n```json\n{\"escenarios\": [{\"nombre\": \"base\", \"valor_intrinseco\": 120, "
+        "## 8. E\n\nx\n\n```json\n{\"escenarios\": [{\"nombre\": \"base\", \"valor_intrinseco_5y\": 120, \"valor_intrinseco_10y\": 175, "
         "\"precio_actual\": 100, \"tir_5y_pct\": 3.7, \"tir_10y_pct\": 1.8}], \"rating\": {\"calidad_negocio\": 7, "
         "\"atractivo_valoracion\": 6, \"rating_compuesto\": 6.6, \"precio_referencia\": 100, \"fecha_rating\": \"x\"}}\n```"
         "\n\n## 9. C\n\nx\n\n## 10. R\n\nx",

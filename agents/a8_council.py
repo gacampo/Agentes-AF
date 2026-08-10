@@ -25,14 +25,22 @@ Agregá un bloque ```json con los números clave de los tres escenarios y el
 rating final, para que un validador automático pueda verificar que la
 aritmética básica cierra. Debe reflejar EXACTAMENTE los mismos números que
 ya escribiste en prosa/tabla — no es información adicional, es la misma
-información en formato estructurado:
+información en formato estructurado.
+
+IMPORTANTE: tu tesis calcula un valor intrínseco distinto para el año 5 y
+para el año 10 de cada escenario (son proyecciones con supuestos que
+evolucionan en el tiempo, no el mismo número compuesto dos veces). El JSON
+tiene que reflejar ambos valores por separado — NO pongas el valor del año 5
+en un campo genérico y esperes que sirva para validar también la TIR a 10
+años, porque el validador va a comparar cada TIR contra el valor de SU
+propio horizonte:
 
 ```json
 {
   "escenarios": [
-    {"nombre": "conservador", "valor_intrinseco": 0, "precio_actual": 0, "tir_5y_pct": 0, "tir_10y_pct": 0},
-    {"nombre": "base", "valor_intrinseco": 0, "precio_actual": 0, "tir_5y_pct": 0, "tir_10y_pct": 0},
-    {"nombre": "optimista", "valor_intrinseco": 0, "precio_actual": 0, "tir_5y_pct": 0, "tir_10y_pct": 0}
+    {"nombre": "conservador", "valor_intrinseco_5y": 0, "valor_intrinseco_10y": 0, "precio_actual": 0, "tir_5y_pct": 0, "tir_10y_pct": 0},
+    {"nombre": "base", "valor_intrinseco_5y": 0, "valor_intrinseco_10y": 0, "precio_actual": 0, "tir_5y_pct": 0, "tir_10y_pct": 0},
+    {"nombre": "optimista", "valor_intrinseco_5y": 0, "valor_intrinseco_10y": 0, "precio_actual": 0, "tir_5y_pct": 0, "tir_10y_pct": 0}
   ],
   "rating": {
     "calidad_negocio": 0,
@@ -45,7 +53,13 @@ información en formato estructurado:
 ```
 
 "precio_actual" es el mismo en los tres escenarios (el precio de mercado
-provisto). "rating_compuesto" debe ser el promedio ponderado 60% calidad_negocio
+provisto). Si tu metodología de valoración no proyecta un valor separado
+para el año 10 (por ejemplo, un DCF de 5 años sin extensión), repetí el
+mismo valor en "valor_intrinseco_5y" y "valor_intrinseco_10y" — pero si
+tenés proyecciones distintas por horizonte (como en un SOTP con crecimiento
+compuesto a 10 años), usá el valor real de cada uno; no lo dupliques
+artificialmente.
+"rating_compuesto" debe ser el promedio ponderado 60% calidad_negocio
 + 40% atractivo_valoracion — calculalo vos mismo con esa fórmula exacta antes
 de escribirlo, tanto acá como en el bloque de rating en prosa de la sección 9."""
 

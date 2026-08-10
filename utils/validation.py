@@ -121,6 +121,12 @@ def validate_scenarios_json(data, tir_tolerance_pp: float = 5.0, rating_toleranc
     modelo) — chequea que la TIR declarada sea *consistente* con valor
     intrínseco/precio implícitos (proxy de "cierra la aritmética básica"), y
     que el rating compuesto sea el promedio ponderado 60/40 declarado.
+
+    IMPORTANTE: usa un valor intrínseco DISTINTO por horizonte
+    (valor_intrinseco_5y para la TIR a 5 años, valor_intrinseco_10y para la
+    TIR a 10 años) — muchas tesis proyectan un precio objetivo distinto para
+    cada horizonte (crecimiento compuesto), así que comparar la TIR a 10 años
+    contra el valor del año 5 da un falso positivo sistemático.
     """
     if not isinstance(data, dict):
         return ["El bloque JSON no es un objeto válido."]
@@ -137,7 +143,8 @@ def validate_scenarios_json(data, tir_tolerance_pp: float = 5.0, rating_toleranc
                 issues.append(f"Escenario '{nombre}': no es un objeto JSON válido.")
                 continue
             try:
-                vi = float(esc["valor_intrinseco"])
+                vi_5y = float(esc["valor_intrinseco_5y"])
+                vi_10y = float(esc["valor_intrinseco_10y"])
                 precio = float(esc["precio_actual"])
                 tir5 = float(esc["tir_5y_pct"])
                 tir10 = float(esc["tir_10y_pct"])
@@ -145,19 +152,20 @@ def validate_scenarios_json(data, tir_tolerance_pp: float = 5.0, rating_toleranc
                 issues.append(f"Escenario '{nombre}': faltan campos numéricos o no son válidos ({e}).")
                 continue
 
-            if vi <= 0 or precio <= 0:
-                issues.append(f"Escenario '{nombre}': valor_intrinseco y precio_actual deben ser > 0.")
+            if vi_5y <= 0 or vi_10y <= 0 or precio <= 0:
+                issues.append(f"Escenario '{nombre}': valor_intrinseco_5y, valor_intrinseco_10y y precio_actual deben ser > 0.")
                 continue
 
-            ratio = vi / precio
-            for years, tir_declarada in ((5, tir5), (10, tir10)):
+            for years, vi, tir_declarada in ((5, vi_5y, tir5), (10, vi_10y, tir10)):
+                ratio = vi / precio
                 tir_implicita_pct = (ratio ** (1 / years) - 1) * 100
                 if abs(tir_implicita_pct - tir_declarada) > tir_tolerance_pp:
                     issues.append(
                         f"Escenario '{nombre}': TIR {years} años declarada ({tir_declarada:.1f}%) se aleja "
-                        f">±{tir_tolerance_pp:.0f}pp de la implícita por valor_intrinseco/precio_actual "
-                        f"({tir_implicita_pct:.1f}%) sin dividendos — si el negocio paga dividendos "
-                        "materiales esto puede ser normal, pero conviene revisarlo."
+                        f">±{tir_tolerance_pp:.0f}pp de la implícita por valor_intrinseco_{years}y/precio_actual "
+                        f"({tir_implicita_pct:.1f}%) sin dividendos/recompras — si el negocio paga dividendos "
+                        "materiales o hace recompras significativas esto puede ser normal (la TIR total incluye "
+                        "ese efecto), pero conviene revisarlo."
                     )
 
     rating = data.get("rating")
