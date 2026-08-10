@@ -19,6 +19,13 @@ dev = [
 [project.scripts]
 analizar = "main:main"
 
+[tool.setuptools.packages.find]
+# Sin esto, setuptools auto-detecta CUALQUIER carpeta como paquete candidato
+# — incluida reportes/ (gitignored, generada localmente por el pipeline),
+# lo que rompe `pip install -e .` cada vez que ya corriste algún análisis.
+# Limitamos el auto-discovery a los paquetes reales del proyecto.
+include = ["agents*", "utils*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # El test de humo contra la API real (test_qa_wosg.py) queda marcado "live" y
