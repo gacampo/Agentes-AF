@@ -23,6 +23,7 @@ import os
 import shutil
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from rich.console import Console
@@ -51,6 +52,8 @@ from utils.merge import (
     extract_section,
     merge_lite_into_full,
 )
+from utils import history_db
+from utils.validation import extract_json_block
 
 console = Console()
 
@@ -144,6 +147,34 @@ def _pabrai_summary_line(company: str, precio_actual: float | None, fecha_precio
     return f"{company} | Precio: {precio_actual:.2f} | Fecha: {fecha_precio or 'sin fecha'}"
 
 
+def _record_history(company: str, mode: str, results: dict[str, str]) -> None:
+    """Extrae precio/rating/decisión de los bloques JSON de los Agentes 8 y 9
+    (ya validados por esos agentes) y graba una fila en la base de historial.
+    No falla la corrida si algo no se puede parsear — el historial es un
+    complemento, no algo de lo que dependa el resultado principal."""
+    try:
+        a8_data = extract_json_block(results.get("El Consejo de los Especialistas", "")) or {}
+        a9_data = extract_json_block(results.get("Portfolio Manager", "")) or {}
+        rating = a8_data.get("rating", {}) if isinstance(a8_data, dict) else {}
+
+        history_db.record_run(
+            company=company,
+            mode=mode,
+            ticker=a9_data.get("ticker") if isinstance(a9_data, dict) else None,
+            sector=a9_data.get("sector") if isinstance(a9_data, dict) else None,
+            pais=a9_data.get("pais") if isinstance(a9_data, dict) else None,
+            fecha=rating.get("fecha_rating"),
+            precio_referencia=rating.get("precio_referencia"),
+            calidad_negocio=rating.get("calidad_negocio"),
+            atractivo_valoracion=rating.get("atractivo_valoracion"),
+            rating_compuesto=rating.get("rating_compuesto"),
+            decision_portafolio=a9_data.get("decision") if isinstance(a9_data, dict) else None,
+            alocacion_pct=a9_data.get("alocacion_pct") if isinstance(a9_data, dict) else None,
+        )
+    except Exception as e:  # noqa: BLE001 - el historial nunca debe romper la corrida principal
+        console.print(f"  [yellow]⚠ No se pudo grabar el historial de esta corrida: {e}[/yellow]\n")
+
+
 def run_analysis(
     company: str,
     precio_actual: float | None,
@@ -216,6 +247,8 @@ def run_analysis(
             company, base_path, price_injection, precio_actual, fecha_precio,
             pabrai_xlsx=pabrai_xlsx, pabrai_sheet=pabrai_sheet,
         )
+
+    _record_history(company, mode, results)
 
     if base_path:
         _save_full_report(company, results, base_path)
@@ -516,13 +549,144 @@ def _save_full_report(company: str, results: dict[str, str], base_path: Path) ->
     console.print(f"\n[bold green]Resultados guardados en: {base_path}[/bold green]")
 
 
+def _get_current_price(ticker: str) -> float | None:
+    """Consulta el precio actual vía yfinance (gratis, sin tokens de LLM).
+    Retorna None si falla (ticker inválido, sin conexión, etc.) — el
+    llamador debe manejar ese caso sin romper el chequeo de las demás
+    empresas."""
+    try:
+        import yfinance as yf
+    except ImportError:
+        console.print(
+            "[bold red]Falta yfinance. Instalalo con: pip install yfinance[/bold red]"
+        )
+        return None
+    try:
+        info = yf.Ticker(ticker).fast_info
+        price = info.get("lastPrice") or info.get("last_price")
+        return float(price) if price else None
+    except Exception:
+        return None
+
+
+def _deep_structural_check(company: str, ticker: str, fecha_ultima_corrida: str) -> str | None:
+    """Chequeo opcional (--deep): una búsqueda web barata para detectar
+    eventos estructurales (cambio de CEO, M&A) desde la última corrida.
+    Cuesta ~$0.01-0.03 por empresa — no corre por default."""
+    from utils.llm import ask, web_search_tool
+
+    system_prompt = (
+        "Sos un analista que hace un chequeo rápido de novedades corporativas. "
+        "Respondé en UNA sola línea: si encontraste algo estructural relevante "
+        "(cambio de CEO/CFO, M&A, evento regulatorio grave) desde la fecha dada, "
+        "empezá con '🚩 ' y describilo brevemente. Si no encontraste nada relevante, "
+        "respondé exactamente: 'Sin novedades estructurales.'"
+    )
+    user_prompt = (
+        f"Compañía: {company} (ticker: {ticker}). "
+        f"Buscá novedades corporativas estructurales desde el {fecha_ultima_corrida}."
+    )
+    try:
+        return ask(system_prompt, user_prompt, tools=web_search_tool(max_uses=2), max_tokens=200)
+    except Exception as e:
+        return f"(chequeo profundo falló: {e})"
+
+
+def check_triggers(
+    price_threshold_pct: float = 20.0,
+    days_threshold: int = 95,
+    deep: bool = False,
+) -> list[dict]:
+    """Delta Detector: revisa todas las empresas con historial registrado y
+    señala cuáles conviene refrescar. NO corre el pipeline de agentes — es
+    un chequeo barato (yfinance, sin tokens) pensado para correr seguido.
+
+    Retorna la lista de resultados por empresa (para uso programático /
+    testing); además imprime una tabla legible en consola.
+    """
+    latest = history_db.get_latest_per_company()
+    if not latest:
+        console.print(
+            "[yellow]No hay corridas registradas todavía en el historial. "
+            "Corré al menos un --mode full para alguna empresa primero.[/yellow]"
+        )
+        return []
+
+    console.print(Panel(
+        f"[bold cyan]Delta Detector[/bold cyan]  [dim](umbral de precio: ±{price_threshold_pct:.0f}%, "
+        f"umbral de días: {days_threshold})[/dim]",
+        border_style="cyan",
+    ))
+
+    resultados = []
+    for row in latest:
+        company = row["company"]
+        ticker = row["ticker"]
+        precio_anterior = row["precio_referencia"]
+        fecha_anterior = row["fecha"] or row["created_at"][:10]
+
+        dias_transcurridos = (
+            datetime.now(timezone.utc) - datetime.fromisoformat(row["created_at"])
+        ).days
+
+        if not ticker:
+            console.print(f"  [dim]{company}: sin ticker registrado, no se puede chequear precio.[/dim]")
+            resultados.append({"company": company, "trigger": False, "motivo": "sin ticker"})
+            continue
+
+        precio_actual = _get_current_price(ticker)
+        pct_change = None
+        price_trigger = False
+        if precio_actual is not None and precio_anterior:
+            pct_change = (precio_actual / precio_anterior - 1) * 100
+            price_trigger = abs(pct_change) >= price_threshold_pct
+
+        time_trigger = dias_transcurridos >= days_threshold
+
+        motivos = []
+        if price_trigger:
+            motivos.append(f"precio movió {pct_change:+.1f}% (umbral ±{price_threshold_pct:.0f}%)")
+        if time_trigger:
+            motivos.append(f"{dias_transcurridos} días desde la última corrida (umbral {days_threshold})")
+
+        deep_flag = None
+        if deep and (price_trigger or time_trigger):
+            deep_flag = _deep_structural_check(company, ticker, fecha_anterior)
+            if deep_flag and deep_flag.startswith("🚩"):
+                motivos.append(deep_flag)
+
+        trigger = bool(motivos)
+        color = "yellow" if trigger else "green"
+        precio_str = f"${precio_actual:.2f}" if precio_actual is not None else "N/D"
+        estado = "🔔 REVISAR" if trigger else "✓ sin novedad"
+        console.print(
+            f"  [{color}]{estado}[/{color}]  {company} ({ticker}) — precio registrado ${precio_anterior:.2f} → "
+            f"actual {precio_str}  |  {'; '.join(motivos) if motivos else 'sin triggers'}"
+        )
+
+        resultados.append({
+            "company": company, "ticker": ticker, "precio_anterior": precio_anterior,
+            "precio_actual": precio_actual, "pct_change": pct_change,
+            "dias_transcurridos": dias_transcurridos, "trigger": trigger, "motivos": motivos,
+        })
+
+    n_triggers = sum(1 for r in resultados if r["trigger"])
+    console.print(f"\n[bold]{n_triggers} de {len(resultados)} empresas necesitan revisión.[/bold]")
+    if n_triggers:
+        console.print("[dim]Corré: python main.py \"<empresa>\" --mode lite  para cada una marcada arriba.[/dim]")
+
+    return resultados
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Agentes-AF: Análisis de inversión multi-agente",
     )
     parser.add_argument(
         "company",
-        help="Nombre de la compañía a analizar (ej: 'Apple', 'Mercado Libre', 'Costco')",
+        nargs="?",
+        default=None,
+        help="Nombre de la compañía a analizar (ej: 'Apple', 'Mercado Libre', 'Costco'). No hace falta con --check-triggers.",
     )
     parser.add_argument(
         "-o", "--output",
@@ -565,7 +729,49 @@ def main():
         help="Nombre de hoja a usar/crear en el Excel del checklist (default: mismo nombre que 'company').",
     )
 
+    parser.add_argument(
+        "--check-triggers",
+        action="store_true",
+        help=(
+            "Delta Detector: no analiza una empresa — revisa todas las empresas con "
+            "historial registrado (precio actual vía yfinance, sin tokens de LLM) y "
+            "señala cuáles conviene refrescar. Ignora el argumento 'company'."
+        ),
+    )
+    parser.add_argument(
+        "--price-threshold-pct",
+        type=float,
+        default=20.0,
+        help="Umbral de movimiento de precio (%%) para marcar una empresa como 'revisar' en --check-triggers (default: 20).",
+    )
+    parser.add_argument(
+        "--days-threshold",
+        type=int,
+        default=95,
+        help="Días desde la última corrida para marcar una empresa como 'revisar' en --check-triggers (default: 95, ~1 trimestre).",
+    )
+    parser.add_argument(
+        "--deep",
+        action="store_true",
+        help=(
+            "Solo con --check-triggers: además del chequeo de precio/tiempo (gratis), hace "
+            "una búsqueda web barata por empresa marcada para detectar cambios estructurales "
+            "(CEO, M&A). Cuesta ~$0.01-0.03 por empresa marcada."
+        ),
+    )
+
     args = parser.parse_args()
+
+    if args.check_triggers:
+        check_triggers(
+            price_threshold_pct=args.price_threshold_pct,
+            days_threshold=args.days_threshold,
+            deep=args.deep,
+        )
+        return
+
+    if not args.company:
+        parser.error("el argumento 'company' es obligatorio salvo que uses --check-triggers")
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
         console.print("[bold red]Error: ANTHROPIC_API_KEY no está configurada.[/bold red]")
