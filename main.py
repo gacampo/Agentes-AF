@@ -2,8 +2,18 @@
 """
 Agentes-AF: Sistema multi-agente de análisis de inversión.
 
-Orquesta 8 agentes especializados para analizar una compañía
-y determinar si es viable para invertir.
+Orquesta 10 agentes especializados para analizar una compañía,
+construir una tesis de inversión, decidir alocación al portafolio,
+y auditar la calidad del proceso.
+
+Dos modos de corrida:
+- --mode full (default): pipeline completo, los 10 agentes. Empresa nueva,
+  o cuando hay un cambio estructural que amerita revisar todo desde cero.
+- --mode lite: refresh trimestral. Solo corren en versión "lite" los
+  Agentes 4, 7 y 8 (los que dependen de datos que cambian balance a balance);
+  los Agentes 1, 2, 3, 5, 6 (la tesis cualitativa) NO se tocan, se mantienen
+  tal cual del último full. Los Agentes 9 y 10 corren siempre completos
+  porque son livianos y necesitan ver el estado más reciente.
 """
 
 from __future__ import annotations
@@ -32,10 +42,20 @@ from agents import (
     PortfolioManager,
 )
 from agents.a10_qa_reviewer import QAReviewer
+from agents.a11_pabrai_checklist import PabraiChecklistAgent
+from utils.merge import (
+    A7_FASE_B_PATTERN,
+    A7_FASE_C_PATTERN,
+    A8_SECCION_8_PATTERN,
+    A8_SECCION_10_PATTERN,
+    extract_section,
+    merge_lite_into_full,
+)
 
 console = Console()
 
-# Mapeo canónico agente → archivo de salida (usado para resumibilidad)
+# Mapeo canónico agente → archivo de salida (usado para resumibilidad y para
+# cargar el estado anterior en modo lite).
 AGENT_FILE_NAMES: dict[str, str] = {
     "Business Model Clarifier": "01_modelo_negocio.md",
     "Leadership & Capital Allocation": "02_liderazgo.md",
@@ -47,6 +67,7 @@ AGENT_FILE_NAMES: dict[str, str] = {
     "El Consejo de los Especialistas": "08_tesis_inversion.md",
     "Portfolio Manager": "09_portfolio_manager.md",
     "QA Reviewer": "10_qa_review.md",
+    "Pabrai Checklist": "11_checklist_pabrai.md",
 }
 
 
@@ -89,6 +110,40 @@ def _build_price_context(precio_actual: float | None, fecha_precio: str, notas_c
     )
 
 
+def _require_full_run_exists(base_path: Path, company: str) -> dict[str, str]:
+    """Modo lite requiere una corrida full previa completa. Carga y retorna
+    todos los outputs anteriores, o corta la ejecución con un mensaje claro
+    si falta alguno."""
+    previous: dict[str, str] = {}
+    faltantes: list[str] = []
+    for agent_name in AGENT_FILE_NAMES:
+        if agent_name in ("QA Reviewer", "Pabrai Checklist"):
+            continue  # QA se regenera siempre; Pabrai es opcional (solo si se pasó --pabrai-xlsx)
+        cached = _load_cached(base_path, agent_name)
+        if cached is None:
+            faltantes.append(agent_name)
+        else:
+            previous[agent_name] = cached
+
+    if faltantes:
+        console.print(
+            f"[bold red]Error: no se puede correr --mode lite para '{company}' — "
+            f"falta una corrida completa previa.[/bold red]"
+        )
+        console.print(f"[red]Agentes sin reporte guardado en {base_path}: {', '.join(faltantes)}[/red]")
+        console.print("[yellow]Corré primero: python main.py \"" + company + "\" --mode full[/yellow]")
+        sys.exit(1)
+
+    return previous
+
+
+def _pabrai_summary_line(company: str, precio_actual: float | None, fecha_precio: str) -> str:
+    """Línea corta de referencia para la celda A2 de la hoja del checklist."""
+    if precio_actual is None:
+        return f"{company} | Precio no provisto (checklist preliminar) | {fecha_precio or 'sin fecha'}"
+    return f"{company} | Precio: {precio_actual:.2f} | Fecha: {fecha_precio or 'sin fecha'}"
+
+
 def run_analysis(
     company: str,
     precio_actual: float | None,
@@ -96,21 +151,28 @@ def run_analysis(
     notas_corporativas: str,
     output_dir: str | None = None,
     fresh: bool = False,
+    mode: str = "full",
+    hecho_nuevo: str = "",
+    pabrai_xlsx: str | None = None,
+    pabrai_sheet: str | None = None,
 ) -> dict[str, str]:
-    """Ejecuta el pipeline completo de análisis para una compañía.
+    """Ejecuta el pipeline de análisis para una compañía, en modo full o lite.
 
-    Fase 1 (Agentes 1-5): Análisis independiente en paralelo conceptual.
-    Fase 2 (Agente 6): Pensamiento multidisciplinario con contexto de fase 1.
-    Fase 3 (Agente 7): Consolidación de todos los hallazgos.
-    Fase 4 (Agente 8): Tesis de inversión final.
-    Fase 5 (Agente 9): Decisión de alocación al portafolio.
-    Fase 6 (Agente 10): Auditoría QA contra catálogo de checks.
-
-    Si fresh=False (default), los agentes cuyo archivo de salida ya existe en
-    output_dir se saltean y se carga su resultado del disco, permitiendo retomar
-    una corrida interrumpida desde el punto de corte.
-    Si fresh=True, se borran los reportes existentes antes de arrancar.
+    Si fresh=False (default) en modo full, los agentes cuyo archivo de salida
+    ya existe en output_dir se saltean y se carga su resultado del disco,
+    permitiendo retomar una corrida interrumpida desde el punto de corte.
+    Si fresh=True, se borran los reportes existentes antes de arrancar
+    (no válido junto con mode="lite").
     """
+    if mode not in ("full", "lite"):
+        raise ValueError(f"mode debe ser 'full' o 'lite', recibido: {mode!r}")
+    if mode == "lite" and fresh:
+        console.print("[bold red]Error: --fresh no es compatible con --mode lite.[/bold red]")
+        sys.exit(1)
+    if mode == "lite" and not output_dir:
+        console.print("[bold red]Error: --mode lite requiere guardar/leer reportes (no usar --no-save).[/bold red]")
+        sys.exit(1)
+
     base_path = (
         Path(output_dir) / company.lower().replace(" ", "_").replace("/", "_")
         if output_dir
@@ -123,12 +185,148 @@ def run_analysis(
             f"[bold red]─── Corrida limpia: reportes anteriores de '{company}' eliminados ───[/bold red]\n"
         )
 
-    results: dict[str, str] = {}
     price_context = _build_price_context(precio_actual, fecha_precio, notas_corporativas)
     price_injection: dict[str, str] = {"__precio_mercado__": price_context}
+    if hecho_nuevo.strip():
+        price_injection["__hecho_nuevo__"] = hecho_nuevo.strip()
+
+    console.print(Panel(
+        f"[bold cyan]Analizando: {company}[/bold cyan]  [dim](modo: {mode})[/dim]\n\n"
+        + (
+            "10 agentes especializados trabajarán en secuencia para\n"
+            "construir una tesis de inversión integral, decidir alocación al portafolio\n"
+            "y auditar la calidad del proceso."
+            if mode == "full"
+            else
+            "Refresh trimestral: solo se recalculan los datos que cambian\n"
+            "balance a balance (Agentes 4, 7 y 8). La tesis cualitativa\n"
+            "(Agentes 1-3, 5-6) se mantiene del último análisis completo."
+        ),
+        title="🔍 Agentes-AF",
+        border_style="cyan",
+    ))
+
+    if mode == "lite":
+        results = run_analysis_lite(
+            company, base_path, price_injection, precio_actual, fecha_precio,
+            pabrai_xlsx=pabrai_xlsx, pabrai_sheet=pabrai_sheet,
+        )
+    else:
+        results = run_analysis_full(
+            company, base_path, price_injection, precio_actual, fecha_precio,
+            pabrai_xlsx=pabrai_xlsx, pabrai_sheet=pabrai_sheet,
+        )
+
+    if base_path:
+        _save_full_report(company, results, base_path)
+
+    console.print(Panel(
+        Markdown(results["El Consejo de los Especialistas"]),
+        title="📋 Tesis de inversión (vigente)",
+        border_style="green",
+    ))
+    console.print(Panel(
+        Markdown(results["Portfolio Manager"]),
+        title="💼 Decisión de portafolio",
+        border_style="magenta",
+    ))
+    console.print(Panel(
+        Markdown(results["QA Reviewer"]),
+        title="🔎 Auditoría QA",
+        border_style="yellow",
+    ))
+    if "Pabrai Checklist" in results:
+        console.print(Panel(
+            Markdown(results["Pabrai Checklist"]),
+            title="✅ Checklist Pabrai",
+            border_style="blue",
+        ))
+
+    return results
+
+
+def _run_pabrai_checklist(
+    company: str,
+    results: dict[str, str],
+    base_path: Path | None,
+    price_injection: dict[str, str],
+    precio_actual: float | None,
+    fecha_precio: str,
+    pabrai_xlsx: str | None,
+    pabrai_sheet: str | None,
+    mode: str,
+) -> str | None:
+    """Corre el Agente 11 (full o lite) si se configuró --pabrai-xlsx. Es
+    complementario al pipeline principal: si algo falla acá (archivo
+    corrupto, hoja inexistente en lite, etc.) se loguea un warning claro y
+    se sigue — no debe tirar abajo una tesis que ya se generó bien."""
+    if not pabrai_xlsx:
+        return None
+
+    sheet_name = pabrai_sheet or company
+    fecha_label = fecha_precio or time.strftime("%d-%b-%Y")
+    agent11 = PabraiChecklistAgent()
+    context = {**results, **price_injection}
+
+    console.print(f"\n[bold yellow]═══ Fase 7: Checklist Pabrai (Agente 11, {mode}) ═══[/bold yellow]\n")
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn(f"[bold green]{agent11.name}[/bold green] ({mode})..."),
+            console=console,
+        ) as progress:
+            progress.add_task("", total=None)
+            start = time.time()
+            if mode == "full":
+                report, resumen = agent11.run_full(
+                    company,
+                    context=context,
+                    workbook_path=pabrai_xlsx,
+                    sheet_name=sheet_name,
+                    company_header=f"CHECKLIST PABRAI — {company.upper()}",
+                    summary_line=_pabrai_summary_line(company, precio_actual, fecha_precio),
+                    fecha_label=f"FULL-{fecha_label}",
+                )
+            else:
+                previous_summary = _load_cached(base_path, "Pabrai Checklist") if base_path else None
+                if previous_summary is None:
+                    console.print(
+                        "  [yellow]⚠ No hay checklist Pabrai previo guardado para esta empresa — "
+                        "corré primero --mode full con --pabrai-xlsx para poder hacer el refresh. "
+                        "Se omite el Agente 11 en esta corrida.[/yellow]\n"
+                    )
+                    return None
+                report, resumen = agent11.run_lite(
+                    company,
+                    context=context,
+                    workbook_path=pabrai_xlsx,
+                    sheet_name=sheet_name,
+                    previous_summary=previous_summary,
+                    fecha_label=fecha_label,
+                )
+            elapsed = time.time() - start
+        console.print(f"  ✓ {agent11.name} completado ({elapsed:.1f}s)\n")
+        if base_path:
+            _save_agent(base_path, agent11.name, company, report)
+        return report
+    except Exception as e:  # noqa: BLE001 - deliberadamente amplio: es un paso opcional
+        console.print(f"  [bold red]⚠ Checklist Pabrai falló, se omite: {e}[/bold red]\n")
+        return None
+
+
+def run_analysis_full(
+    company: str,
+    base_path: Path | None,
+    price_injection: dict[str, str],
+    precio_actual: float | None = None,
+    fecha_precio: str = "",
+    pabrai_xlsx: str | None = None,
+    pabrai_sheet: str | None = None,
+) -> dict[str, str]:
+    """Pipeline completo: los 10 agentes en secuencia (comportamiento original)."""
+    results: dict[str, str] = {}
 
     def run_or_load(agent, context) -> str:
-        """Carga del disco si ya existe, si no corre el agente y guarda."""
         if base_path:
             cached = _load_cached(base_path, agent.name)
             if cached is not None:
@@ -156,15 +354,6 @@ def run_analysis(
         CustomerValueDurability(),
     ]
 
-    console.print(Panel(
-        f"[bold cyan]Analizando: {company}[/bold cyan]\n\n"
-        "10 agentes especializados trabajarán en secuencia para\n"
-        "construir una tesis de inversión integral, decidir alocación al portafolio\n"
-        "y auditar la calidad del proceso.",
-        title="🔍 Agentes-AF",
-        border_style="cyan",
-    ))
-
     console.print("\n[bold yellow]═══ Fase 1: Análisis fundamental (Agentes 1-5) ═══[/bold yellow]\n")
     for agent in phase1_agents:
         results[agent.name] = run_or_load(agent, price_injection)
@@ -189,25 +378,130 @@ def run_analysis(
     agent10 = QAReviewer()
     results[agent10.name] = run_or_load(agent10, results)
 
-    # Guardar reporte consolidado (los individuales ya se guardaron en run_or_load)
-    if base_path:
-        _save_full_report(company, results, base_path)
+    pabrai_report = _run_pabrai_checklist(
+        company, results, base_path, price_injection, precio_actual, fecha_precio,
+        pabrai_xlsx, pabrai_sheet, mode="full",
+    )
+    if pabrai_report:
+        results["Pabrai Checklist"] = pabrai_report
 
-    console.print(Panel(
-        Markdown(results["El Consejo de los Especialistas"]),
-        title="📋 Tesis de inversión final",
-        border_style="green",
-    ))
-    console.print(Panel(
-        Markdown(results["Portfolio Manager"]),
-        title="💼 Decisión de portafolio",
-        border_style="magenta",
-    ))
-    console.print(Panel(
-        Markdown(results["QA Reviewer"]),
-        title="🔎 Auditoría QA",
-        border_style="yellow",
-    ))
+    return results
+
+
+def run_analysis_lite(
+    company: str,
+    base_path: Path | None,
+    price_injection: dict[str, str],
+    precio_actual: float | None = None,
+    fecha_precio: str = "",
+    pabrai_xlsx: str | None = None,
+    pabrai_sheet: str | None = None,
+) -> dict[str, str]:
+    """Refresh trimestral: solo corren en modo lite los Agentes 4, 7 y 8.
+    Los Agentes 1, 2, 3, 5, 6 se cargan tal cual del último full. Los
+    Agentes 9 y 10 corren completos (son livianos y necesitan ver lo último)."""
+    assert base_path is not None  # ya validado en run_analysis()
+    previous = _require_full_run_exists(base_path, company)
+    results: dict[str, str] = {}
+
+    # Agentes 1, 2, 3, 5, 6: se mantienen del último full, sin re-narrar.
+    for agent_name in [
+        "Business Model Clarifier",
+        "Leadership & Capital Allocation",
+        "Competitive Advantages Dynamics",
+        "Customer Value & Durability",
+        "Multidisciplinary Thinking",
+    ]:
+        results[agent_name] = previous[agent_name]
+        console.print(f"  ⏭  {agent_name} [dim](tesis cualitativa vigente, sin cambios)[/dim]\n")
+
+    def timed_run(agent, **kwargs) -> str:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn(f"[bold green]{agent.name}[/bold green] (refresh)..."),
+            console=console,
+        ) as progress:
+            progress.add_task("", total=None)
+            start = time.time()
+            result = agent.run(company, **kwargs)
+            elapsed = time.time() - start
+        console.print(f"  ✓ {agent.name} refresh completado ({elapsed:.1f}s)\n")
+        return result
+
+    console.print("\n[bold yellow]═══ Refresh 1: Investigación primaria (Agente 4-lite) ═══[/bold yellow]\n")
+    agent4 = PrimaryResearchAnalyst()
+    a4_delta = timed_run(
+        agent4, context=price_injection, mode="lite", previous_output=previous["Primary Research Analyst"]
+    )
+    a4_full_doc = (
+        a4_delta.strip()
+        + "\n\n---\n\n> 📜 **Investigación anterior (histórica):**\n\n"
+        + previous["Primary Research Analyst"]
+    )
+    if base_path:
+        _save_agent(base_path, agent4.name, company, a4_full_doc)
+    results[agent4.name] = a4_full_doc
+
+    console.print("\n[bold yellow]═══ Refresh 2: Métricas y valoración (Agente 7-lite) ═══[/bold yellow]\n")
+    agent7 = OrganizadorPrincipal()
+    prev_fase_b = extract_section(previous["Organizador Principal"], A7_FASE_B_PATTERN, A7_FASE_C_PATTERN)
+    a7_delta = timed_run(
+        agent7,
+        context={
+            **price_injection,
+            "Primary Research Analyst — cambios de este trimestre": a4_delta,
+        },
+        mode="lite",
+        previous_output=prev_fase_b,
+    )
+    a7_full_doc, merge7_ok = merge_lite_into_full(
+        previous["Organizador Principal"], a7_delta, A7_FASE_B_PATTERN, A7_FASE_C_PATTERN
+    )
+    if not merge7_ok:
+        console.print("  [bold red]⚠ No se pudo fusionar automáticamente la Fase B — revisar el archivo a mano.[/bold red]\n")
+    if base_path:
+        _save_agent(base_path, agent7.name, company, a7_full_doc)
+    results[agent7.name] = a7_full_doc
+
+    console.print("\n[bold yellow]═══ Refresh 3: Escenarios y rating (Agente 8-lite) ═══[/bold yellow]\n")
+    agent8 = ConsejoDeEspecialistas()
+    a8_delta = timed_run(
+        agent8,
+        context={
+            **price_injection,
+            "Primary Research Analyst — cambios de este trimestre": a4_delta,
+            "Organizador Principal — Fase B actualizada": a7_delta,
+        },
+        mode="lite",
+        previous_output=previous["El Consejo de los Especialistas"],
+    )
+    a8_full_doc, merge8_ok = merge_lite_into_full(
+        previous["El Consejo de los Especialistas"], a8_delta, A8_SECCION_8_PATTERN, A8_SECCION_10_PATTERN
+    )
+    if not merge8_ok:
+        console.print("  [bold red]⚠ No se pudo fusionar automáticamente la sección 8-9 — revisar el archivo a mano.[/bold red]\n")
+    if base_path:
+        _save_agent(base_path, agent8.name, company, a8_full_doc)
+    results[agent8.name] = a8_full_doc
+
+    console.print("\n[bold yellow]═══ Fase 5: Decisión de portafolio (Agente 9, completo) ═══[/bold yellow]\n")
+    agent9 = PortfolioManager()
+    results[agent9.name] = timed_run(agent9, context={**results, **price_injection}, mode="full")
+    if base_path:
+        _save_agent(base_path, agent9.name, company, results[agent9.name])
+
+    console.print("\n[bold yellow]═══ Fase 6: Auditoría QA (Agente 10, completo) ═══[/bold yellow]\n")
+    agent10 = QAReviewer()
+    results[agent10.name] = timed_run(agent10, context=results, mode="full")
+    if base_path:
+        _save_agent(base_path, agent10.name, company, results[agent10.name])
+
+    pabrai_report = _run_pabrai_checklist(
+        company, results, base_path, price_injection, precio_actual, fecha_precio,
+        pabrai_xlsx, pabrai_sheet, mode="lite",
+    )
+    if pabrai_report:
+        results["Pabrai Checklist"] = pabrai_report
 
     return results
 
@@ -243,7 +537,32 @@ def main():
     parser.add_argument(
         "--fresh",
         action="store_true",
-        help="Forzar corrida limpia: borra reportes existentes de la empresa antes de arrancar",
+        help="Forzar corrida limpia: borra reportes existentes de la empresa antes de arrancar (solo --mode full)",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["full", "lite"],
+        default="full",
+        help=(
+            "full (default): pipeline completo, los 10 agentes. "
+            "lite: refresh trimestral — solo recalcula datos financieros, métricas y "
+            "valoración (Agentes 4/7/8); requiere una corrida --mode full previa."
+        ),
+    )
+
+    parser.add_argument(
+        "--pabrai-xlsx",
+        default=None,
+        help=(
+            "Path al Excel del checklist Pabrai (ej: checklist_pabrai.xlsx). "
+            "Si se pasa, corre el Agente 11 al final del pipeline (full o lite). "
+            "Si se omite, el Agente 11 no corre."
+        ),
+    )
+    parser.add_argument(
+        "--pabrai-sheet",
+        default=None,
+        help="Nombre de hoja a usar/crear en el Excel del checklist (default: mismo nombre que 'company').",
     )
 
     args = parser.parse_args()
@@ -275,8 +594,27 @@ def main():
             "[yellow]Notas corporativas (splits, acciones vigentes — Enter para omitir): [/yellow]"
         ).strip()
 
+    hecho_nuevo = ""
+    if args.mode == "lite":
+        console.print("\n[bold cyan]─── Actualización trimestral ───[/bold cyan]")
+        hecho_nuevo = console.input(
+            "[yellow]¿Pegás los resultados del último trimestre / hechos relevantes? "
+            "(Enter para que el agente los busque solo vía web search): [/yellow]"
+        ).strip()
+
     output_dir = None if args.no_save else args.output
-    run_analysis(args.company, precio_actual, fecha_precio, notas_corporativas, output_dir, fresh=args.fresh)
+    run_analysis(
+        args.company,
+        precio_actual,
+        fecha_precio,
+        notas_corporativas,
+        output_dir,
+        fresh=args.fresh,
+        mode=args.mode,
+        hecho_nuevo=hecho_nuevo,
+        pabrai_xlsx=args.pabrai_xlsx,
+        pabrai_sheet=args.pabrai_sheet,
+    )
 
 
 if __name__ == "__main__":

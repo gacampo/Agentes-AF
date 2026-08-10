@@ -3,6 +3,15 @@
 Determina si una compañía ingresa al portafolio y con qué porcentaje de alocación,
 basándose en la tesis de inversión completa y el estado actual del portafolio.
 Mantiene restricciones estrictas de diversificación y pondera por convicción y descuento al valor justo.
+
+Cierra su decisión con un bloque ```json estructurado que se valida en código de
+forma BLOQUEANTE (a diferencia de los Agentes 7 y 8): si la alocación propuesta
+rompe los límites de concentración o el portafolio no cierra en ~100%, NO se
+persiste en portafolio.json — se guarda la salida del agente con un banner de
+advertencia bien visible para revisión manual, pero el archivo de estado del
+portafolio no se toca. Esto también corrige un gap que tenía el pipeline: antes
+`save_portfolio()` nunca se llamaba desde ningún lado, así que el portafolio en
+disco jamás se actualizaba solo; ahora si la validación pasa, se persiste acá.
 """
 
 from __future__ import annotations
@@ -11,7 +20,7 @@ import json
 from pathlib import Path
 
 from agents.base import BaseAgent
-from utils.llm import ask
+from utils.validation import PortfolioValidationError, extract_json_block, validate_portfolio_json
 
 
 PORTFOLIO_FILE = "reportes/portafolio.json"
@@ -43,12 +52,54 @@ def save_portfolio(portfolio: dict, path: str = PORTFOLIO_FILE) -> None:
     p.write_text(json.dumps(portfolio, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+_JSON_BLOCK_INSTRUCTIONS = """
+═══ BLOQUE JSON OBLIGATORIO (cierra tu respuesta) ═══
+
+Tu decisión se valida automáticamente en código antes de persistirse — si el
+bloque JSON no está, o no cierra aritméticamente, la alocación NO se guarda
+en el portafolio real, sin importar lo que hayas escrito en prosa. Por eso
+este bloque tiene que reflejar EXACTAMENTE la misma decisión y el mismo
+"Estado actualizado del portafolio" (punto 6) que ya redactaste, en formato
+estructurado:
+
+```json
+{
+  "decision": "INGRESA",
+  "empresa": "Nombre de la empresa",
+  "ticker": "TICKER",
+  "sector": "Sector",
+  "pais": "País principal",
+  "alocacion_pct": 0,
+  "descuento_fv_pct": 0,
+  "portafolio_actualizado": {
+    "posiciones": [
+      {"empresa": "...", "ticker": "...", "sector": "...", "pais": "...", "alocacion_pct": 0, "descuento_fv_pct": 0}
+    ],
+    "cash_disponible_pct": 0
+  }
+}
+```
+
+Reglas para llenarlo:
+- "decision" es "INGRESA" o "NO INGRESA" (exactamente esos strings).
+- Si "decision" es "NO INGRESA", igual completá "portafolio_actualizado" con
+  las posiciones SIN cambios (la empresa evaluada no se agrega).
+- "portafolio_actualizado.posiciones" debe incluir TODAS las posiciones
+  vigentes (las que ya estaban + la nueva si ingresa) — no solo la nueva.
+- La suma de todos los alocacion_pct + cash_disponible_pct debe dar 100
+  (±0.5 de tolerancia por redondeo).
+- Ninguna posición individual puede superar el máximo por empresa, ningún
+  sector puede superar el máximo por sector, ningún país el máximo por país
+  (los límites exactos están en el bloque "Reglas" del contexto)."""
+
+
 class PortfolioManager(BaseAgent):
     name = "Portfolio Manager"
     description = "Decide alocación al portafolio basándose en convicción, descuento al fair value y diversificación."
     max_tokens = 8192
 
-    system_prompt = """Sos el Portfolio Manager del fondo de inversión. Tu rol es tomar la decisión FINAL
+    system_prompt = (
+        """Sos el Portfolio Manager del fondo de inversión. Tu rol es tomar la decisión FINAL
 de si una compañía ingresa al portafolio y con qué porcentaje de alocación.
 
 ═══ REGLAS ESTRICTAS DE ALOCACIÓN ═══
@@ -100,6 +151,9 @@ Tu output debe incluir:
    | Empresa | Ticker | Sector | País | Alocación % | Descuento al FV |
 7. **Concentración por sector y país**: Verificar que ningún sector/país supere 25%.
 8. **Cash restante**: Porcentaje disponible para futuras posiciones.
+"""
+        + _JSON_BLOCK_INSTRUCTIONS
+        + """
 
 ═══ IMPORTANTE ═══
 
@@ -114,6 +168,7 @@ Tu output debe incluir:
 - Respondé en español.
 - Formato: Markdown profesional.
 - Esto NO es asesoramiento financiero."""
+    )
 
     def build_user_prompt(self, company: str) -> str:
         """Construye el prompt con el estado actual del portafolio. El contexto acumulado
@@ -147,3 +202,43 @@ Tu output debe incluir:
         parts.append("═══ FIN ESTADO PORTAFOLIO ═══\n")
 
         return "\n".join(parts)
+
+    # ═══════════════════════ Validación BLOQUEANTE + persistencia ═══════════════════════
+
+    def run(self, company: str, context=None, mode: str = "full", previous_output: str | None = None) -> str:
+        text = super().run(company, context=context, mode=mode, previous_output=previous_output)
+        return self._validate_and_persist(text)
+
+    def _validate_and_persist(self, text: str) -> str:
+        reglas = load_portfolio()["reglas"]
+        data = extract_json_block(text)
+        # nota: "reglas" es config fija que NO le pedimos reproducir al LLM en
+        # su bloque JSON — se preserva acá al persistir, más abajo.
+
+        if data is None:
+            issues = [
+                "No se encontró (o no se pudo parsear) el bloque ```json obligatorio "
+                "de decisión de alocación."
+            ]
+        else:
+            issues = validate_portfolio_json(data, reglas)
+
+        if issues:
+            print(f"[validación] {self.name}: BLOQUEADO — {len(issues)} problema(s), no se persiste portafolio.json")
+            error = PortfolioValidationError(issues)
+            banner = (
+                "\n\n---\n\n> 🛑 **BLOQUEADO — el portafolio NO se actualizó automáticamente**\n"
+                "> La alocación propuesta no pasó la validación y no se guardó en "
+                f"`{PORTFOLIO_FILE}`. Revisar y ajustar a mano antes de confirmar la posición:\n"
+            )
+            for issue in error.issues:
+                banner += f"> - {issue}\n"
+            return text + banner
+
+        # Validación OK: persistir el nuevo estado del portafolio, preservando
+        # "reglas" (config fija que el LLM no reproduce en su bloque JSON).
+        nuevo_portfolio = dict(data["portafolio_actualizado"])
+        nuevo_portfolio["reglas"] = reglas
+        save_portfolio(nuevo_portfolio)
+        print(f"[portafolio] {PORTFOLIO_FILE} actualizado — decisión: {data.get('decision')}")
+        return text + f"\n\n---\n\n> ✅ Portafolio actualizado en `{PORTFOLIO_FILE}`.\n"

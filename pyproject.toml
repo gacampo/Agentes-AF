@@ -7,7 +7,23 @@ dependencies = [
     "anthropic>=0.39.0",
     "rich>=13.0.0",
     "pydantic>=2.0.0",
+    "openpyxl>=3.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
 ]
 
 [project.scripts]
 analizar = "main:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# El test de humo contra la API real (test_qa_wosg.py) queda marcado "live" y
+# se excluye por default — corre solo con `pytest -m live` y requiere
+# ANTHROPIC_API_KEY. El resto de la suite es 100% offline (LLM mockeado).
+markers = [
+    "live: test que llama a la API real de Anthropic (gasta tokens, requiere ANTHROPIC_API_KEY)",
+]
+addopts = "-m 'not live'"

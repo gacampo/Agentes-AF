@@ -2,9 +2,52 @@
 
 Utiliza toda la información previa para realizar la valoración con el método más adecuado
 y producir la tesis de inversión final integrada en 10 secciones narrativas.
+
+Soporta modo lite (refresh trimestral): recalcula SOLO la sección 8 (escenarios/TIR)
+y la 9 (conclusión + rating), dejando las secciones 1-7 de la tesis anterior intactas.
+
+La sección 8 cierra con un bloque ```json estructurado (escenarios + rating) que se
+valida en código: la TIR declarada debe ser consistente con valor intrínseco/precio,
+y el rating compuesto debe ser el promedio ponderado 60/40 declarado. Es una
+validación *no bloqueante* (a diferencia del Agente 9): anota advertencias visibles
+pero no impide guardar la tesis, porque acá la aritmética depende de supuestos del
+DCF que el código no puede reproducir — solo puede señalar inconsistencias evidentes.
 """
 
 from agents.base import BaseAgent
+from utils.validation import annotate_with_warnings, extract_json_block, validate_scenarios_json
+
+
+_JSON_BLOCK_INSTRUCTIONS = """
+**Bloque JSON obligatorio (cierra la sección 8, antes de pasar a la sección 9):**
+
+Agregá un bloque ```json con los números clave de los tres escenarios y el
+rating final, para que un validador automático pueda verificar que la
+aritmética básica cierra. Debe reflejar EXACTAMENTE los mismos números que
+ya escribiste en prosa/tabla — no es información adicional, es la misma
+información en formato estructurado:
+
+```json
+{
+  "escenarios": [
+    {"nombre": "conservador", "valor_intrinseco": 0, "precio_actual": 0, "tir_5y_pct": 0, "tir_10y_pct": 0},
+    {"nombre": "base", "valor_intrinseco": 0, "precio_actual": 0, "tir_5y_pct": 0, "tir_10y_pct": 0},
+    {"nombre": "optimista", "valor_intrinseco": 0, "precio_actual": 0, "tir_5y_pct": 0, "tir_10y_pct": 0}
+  ],
+  "rating": {
+    "calidad_negocio": 0,
+    "atractivo_valoracion": 0,
+    "rating_compuesto": 0,
+    "precio_referencia": 0,
+    "fecha_rating": "DD-MMM-AAAA"
+  }
+}
+```
+
+"precio_actual" es el mismo en los tres escenarios (el precio de mercado
+provisto). "rating_compuesto" debe ser el promedio ponderado 60% calidad_negocio
++ 40% atractivo_valoracion — calculalo vos mismo con esa fórmula exacta antes
+de escribirlo, tanto acá como en el bloque de rating en prosa de la sección 9."""
 
 
 class ConsejoDeEspecialistas(BaseAgent):
@@ -12,7 +55,8 @@ class ConsejoDeEspecialistas(BaseAgent):
     description = "Scenario & Valuation Specialist — Valoración integral y tesis final de inversión."
     max_tokens = 24576
 
-    system_prompt = """Sos el "Scenario & Valuation Specialist", el agente final y más importante del equipo de análisis.
+    system_prompt = (
+        """Sos el "Scenario & Valuation Specialist", el agente final y más importante del equipo de análisis.
 
 Recibís absolutamente TODA la información previa generada por los 7 agentes anteriores:
 modelo de negocio, liderazgo, ventajas competitivas, investigación primaria, creación de valor
@@ -100,6 +144,9 @@ Presentá una tabla resumen clara:
 
 No hace falta mostrar el DCF celda por celda, pero sí explicar la lógica de forma casi completa
 y transparente para que el lector pueda seguir y verificar el razonamiento.
+"""
+        + _JSON_BLOCK_INSTRUCTIONS
+        + """
 
 ## 9. Conclusión y recomendación de inversión a largo plazo
 
@@ -137,10 +184,80 @@ REGLAS ESTRICTAS:
 - La valoración debe estar 100% fundamentada en todo el análisis previo.
 - Evitá anglicismos y tecnicismos innecesarios (usá español claro).
 - La sección 8 debe contener los 3 escenarios COMPLETOS con todos sus supuestos — la concisión
-  es en la redacción, NO en saltear escenarios ni supuestos requeridos.
+  es en la redacción, NO en saltear escenarios ni supuestos requeridos, y NUNCA omitas el bloque JSON.
 - OBLIGATORIO: la sección 9 SIEMPRE debe cerrar con el bloque de rating doble
   (Calidad de Negocio + Atractivo de Valoración + Rating Compuesto + Precio de
   referencia + Fecha). Sin este bloque la tesis está incompleta.
 - Formato: Markdown profesional y fluido.
 - Indicá claramente que esto NO es asesoramiento financiero.
 - Respondé en español."""
+    )
+
+    # ═══════════════════════ MODO LITE (refresh trimestral) ═══════════════════════
+
+    system_prompt_lite = (
+        """Sos el "Scenario & Valuation Specialist". Estás haciendo un REFRESH
+TRIMESTRAL de una tesis que ya existe — NO estás redactando la tesis desde cero.
+
+Recibís la tesis anterior COMPLETA (10 secciones) más el changelog de datos
+actualizados (Agente 4-lite/7-lite) y el precio de mercado actual.
+
+Tu única tarea: reescribir SOLO la sección 8 (tres escenarios + tabla de TIR)
+y la sección 9 (conclusión + rating), usando el precio y los datos nuevos.
+Las secciones 1-7 NO se tocan — no las reescribas, no las repitas, asumí que
+siguen vigentes tal cual están en la tesis anterior.
+
+Si el cambio de precio o de datos es tan grande que además ameritaría revisar
+supuestos cualitativos (moat, management) que viven en las secciones 1-7,
+decilo explícitamente al principio de tu respuesta con:
+"🚩 RECOMIENDO CORRIDA FULL: [motivo]" — pero igual completá el refresh
+numérico de las secciones 8 y 9 con los datos disponibles.
+
+Misma estructura y mismas reglas estrictas que en modo full para estas dos
+secciones (tres escenarios completos con supuestos, tabla resumen, bloque de
+rating obligatorio con los 5 campos).
+
+## 8. Tres escenarios, valoración y tabla de TIR esperadas a 5 y 10 años
+
+(mismo formato que en modo full: supuestos por escenario, tabla resumen)
+"""
+        + _JSON_BLOCK_INSTRUCTIONS
+        + """
+
+## 9. Conclusión y recomendación de inversión a largo plazo
+
+(síntesis breve del cambio de conclusión si lo hay, + el bloque de rating
+obligatorio con los 5 campos, igual que en modo full)
+
+Respondé en español. Formato: Markdown profesional. Indicá que esto NO es
+asesoramiento financiero."""
+    )
+
+    def build_user_prompt_lite(self, company: str, previous_output: str, context=None) -> str:
+        parts = [
+            f"Compañía: **{company}**",
+            "",
+            "═══ TESIS ANTERIOR COMPLETA (secciones 1-9, vigente salvo 8 y 9) ═══",
+            previous_output,
+            "═══ FIN TESIS ANTERIOR ═══",
+        ]
+        return "\n".join(parts)
+
+    # ═══════════════════════ Validación aritmética post-LLM (no bloqueante) ═══════════════════════
+
+    def run(self, company: str, context=None, mode: str = "full", previous_output: str | None = None) -> str:
+        text = super().run(company, context=context, mode=mode, previous_output=previous_output)
+        return self._validate_and_annotate(text)
+
+    def _validate_and_annotate(self, text: str) -> str:
+        data = extract_json_block(text)
+        if data is None:
+            issues = [
+                "No se encontró (o no se pudo parsear) el bloque ```json obligatorio "
+                "de escenarios/rating. Revisar la sección 8-9 a mano."
+            ]
+        else:
+            issues = validate_scenarios_json(data)
+        if issues:
+            print(f"[validación] {self.name}: {len(issues)} inconsistencia(s) en escenarios/rating")
+        return annotate_with_warnings(text, issues, title="Validación automática de escenarios y rating")

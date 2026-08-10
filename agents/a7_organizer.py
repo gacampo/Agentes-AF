@@ -3,9 +3,57 @@
 Recibe TODOS los outputs de los agentes 1 al 6, crea un resumen integral consolidado,
 proporciona métricas clave con criterios de calidad explícitos,
 y determina las métricas y método de valoración más relevantes para la empresa.
+
+Tiene acceso a web search en vivo para completar/verificar la tabla de métricas
+(Fase B) contra datos actuales. Soporta modo lite (refresh trimestral): en ese
+modo recalcula SOLO la Fase B (y ajusta la Fase C si corresponde), sin re-narrar
+la Fase A.
+
+La Fase B cierra siempre con un bloque ```json estructurado que se valida en
+código (utils/validation.py) — el LLM decide los valores, el código chequea
+que sean numéricamente plausibles y que el flag "cumple" sea consistente con
+valor/umbral/dirección declarados.
 """
 
 from agents.base import BaseAgent
+from utils.validation import annotate_with_warnings, extract_json_block, validate_metrics_json
+
+
+_JSON_BLOCK_INSTRUCTIONS = """
+**Bloque JSON obligatorio (cierra la Fase B):**
+
+Después de la tabla en Markdown y el veredicto de calidad financiera, agregá
+un bloque ```json con la MISMA información en formato estructurado, para que
+un validador automático pueda verificar la aritmética. Usá exactamente esta
+forma (una entrada por cada fila de la tabla; "direccion" es "mayor_mejor" si
+un valor más alto es mejor, "menor_mejor" si un valor más bajo es mejor, o
+"informativo" si no aplica juicio de bueno/malo; "umbral" es el umbral
+numérico contra el que evaluaste "cumple", o null si no aplica):
+
+```json
+{
+  "metricas": [
+    {"metrica": "ROIC", "valor_actual": 24.3, "unidad": "%", "direccion": "mayor_mejor", "umbral": 15.0, "cumple": true},
+    {"metrica": "ROCE", "valor_actual": 0, "unidad": "%", "direccion": "mayor_mejor", "umbral": 15.0, "cumple": false},
+    {"metrica": "ROE", "valor_actual": 0, "unidad": "%", "direccion": "mayor_mejor", "umbral": 15.0, "cumple": false},
+    {"metrica": "Margen FCF", "valor_actual": 0, "unidad": "%", "direccion": "mayor_mejor", "umbral": 10.0, "cumple": false},
+    {"metrica": "Conversión FCF/Beneficio neto", "valor_actual": 0, "unidad": "%", "direccion": "mayor_mejor", "umbral": 80.0, "cumple": false},
+    {"metrica": "PER", "valor_actual": 0, "unidad": "x", "direccion": "menor_mejor", "umbral": 20.0, "cumple": false},
+    {"metrica": "Deuda neta/EBITDA", "valor_actual": 0, "unidad": "x", "direccion": "menor_mejor", "umbral": 2.0, "cumple": false},
+    {"metrica": "Deuda neta/Equity", "valor_actual": 0, "unidad": "%", "direccion": "menor_mejor", "umbral": 100.0, "cumple": false},
+    {"metrica": "Intereses/EBIT", "valor_actual": 0, "unidad": "x", "direccion": "mayor_mejor", "umbral": 5.0, "cumple": false},
+    {"metrica": "Crecimiento ingresos CAGR 5 años", "valor_actual": 0, "unidad": "%", "direccion": "informativo", "umbral": null, "cumple": null},
+    {"metrica": "Crecimiento FCF CAGR 5 años", "valor_actual": 0, "unidad": "%", "direccion": "informativo", "umbral": null, "cumple": null},
+    {"metrica": "Dividend Yield", "valor_actual": 0, "unidad": "%", "direccion": "informativo", "umbral": null, "cumple": null}
+  ]
+}
+```
+
+Completá con los valores reales de la empresa (los de arriba son solo el
+formato). Si una métrica no aplica al tipo de negocio (ej. Dividend Yield en
+una empresa que no paga dividendos), poné 0 y "direccion": "informativo".
+El bloque JSON debe reflejar EXACTAMENTE los mismos números que la tabla en
+Markdown — es una validación de consistencia, no información adicional."""
 
 
 class OrganizadorPrincipal(BaseAgent):
@@ -13,9 +61,19 @@ class OrganizadorPrincipal(BaseAgent):
     description = "Consolida todos los hallazgos, analiza calidad financiera y determina método de valoración óptimo."
     max_tokens = 16384
 
-    system_prompt = """Sos el Organizador Principal del equipo de análisis de inversión.
+    uses_web_search = True
+    web_search_max_uses = 6
 
-Recibís obligatoriamente TODOS los outputs completos de los agentes 1 al 6. Tu trabajo tiene TRES fases:
+    system_prompt = (
+        """Sos el Organizador Principal del equipo de análisis de inversión.
+
+Recibís obligatoriamente TODOS los outputs completos de los agentes 1 al 6. Tu trabajo tiene TRES fases.
+
+FORMATO OBLIGATORIO: tu output debe usar EXACTAMENTE estos tres headings markdown,
+literales y en este orden — "## FASE A: RESUMEN INTEGRAL CONSOLIDADO",
+"## FASE B: MÉTRICAS FUNDAMENTALES" y "## FASE C: MÉTODO DE VALORACIÓN" — sin
+variar el texto, porque un script usa estos headings para ubicar cada fase
+automáticamente en refreshes futuros.
 
 ═══ FASE A: RESUMEN INTEGRAL CONSOLIDADO ═══
 
@@ -41,6 +99,10 @@ Creá un resumen integral, consolidado, claro y objetivo con TODOS los hallazgos
 Proporcioná las métricas fundamentales de la compañía con valores concretos y una evaluación explícita
 contra los umbrales de calidad. Esta tabla es OBLIGATORIA y será insumo crítico para los agentes siguientes.
 
+TENÉS ACCESO A WEB SEARCH: usalo para verificar o completar cualquier métrica que no haya quedado
+100% precisa en la investigación primaria del Agente 4 (especialmente ROIC/ROCE, promedios a 5 años,
+y múltiplos de valuación actuales).
+
 **Tabla de métricas fundamentales con criterios de calidad:**
 
 | Métrica | Valor actual | Promedio 5 años | Objetivo/Umbral | ¿Cumple? | Comentario |
@@ -64,9 +126,12 @@ contra los umbrales de calidad. Esta tabla es OBLIGATORIA y será insumo crític
 - Para empresas financieras, asset managers, REITs o utilities, algunos de estos ratios se interpretan diferente. INDICALO EXPLÍCITAMENTE si aplica.
 - Si la empresa es un holding o conglomerado, proporcioná las métricas a nivel consolidado Y por segmento principal si es posible.
 - SIEMPRE indicar el spread ROIC - WACC. Es la métrica más importante de creación de valor según Buffett/Munger.
+"""
+        + _JSON_BLOCK_INSTRUCTIONS
+        + """
 
 **Veredicto de calidad financiera según criterios Buffett/Munger:**
-Después de la tabla, escribí un párrafo claro evaluando:
+Después de la tabla y el bloque JSON, escribí un párrafo claro evaluando:
 - ¿Es un negocio de alta calidad según estos criterios?
 - ¿Cuántos criterios cumple de los "excelente"?
 - ¿La tendencia es favorable o desfavorable?
@@ -116,4 +181,72 @@ REGLAS:
 - Formato: Markdown limpio y profesional.
 - Sé extremadamente riguroso en la determinación del método de valoración; la precisión aquí es crítica.
 - Las métricas de la Fase B son OBLIGATORIAS. Si no tenés un dato exacto, proporcioná la mejor estimación
-  disponible e indicá que es estimación. NUNCA dejes la tabla vacía."""
+  disponible e indicá que es estimación. NUNCA dejes la tabla vacía, y NUNCA omitas el bloque JSON."""
+    )
+
+    # ═══════════════════════ MODO LITE (refresh trimestral) ═══════════════════════
+
+    system_prompt_lite = (
+        """Sos el Organizador Principal. Estás haciendo un REFRESH TRIMESTRAL — NO
+estás consolidando el análisis desde cero.
+
+Recibís: (1) la Fase B anterior completa (tabla de métricas + veredicto), y
+(2) el changelog del Agente 4-lite con los datos financieros actualizados del
+trimestre. Tu única tarea es RECALCULAR la Fase B con los números nuevos.
+
+TENÉS ACCESO A WEB SEARCH para completar cualquier dato que el changelog no
+haya cubierto.
+
+NO reescribas la Fase A (resumen consolidado) — no la recibís y no hace falta,
+sigue vigente. Si los cambios de este trimestre son lo bastante grandes como
+para justificar ajustar el método de valoración de la Fase C, indicalo en una
+sección breve "Ajuste al método de valoración" — si no, escribí "Sin cambios
+al método de valoración."
+
+Tu output debe tener exactamente esta estructura, usando ese heading literal
+"## FASE B: MÉTRICAS FUNDAMENTALES" (igual que en modo full, para que un script
+pueda ubicarlo y fusionarlo con el documento anterior):
+
+## FASE B: MÉTRICAS FUNDAMENTALES
+
+(la misma tabla de siempre, con los valores actualizados)
+"""
+        + _JSON_BLOCK_INSTRUCTIONS
+        + """
+
+## Ajuste al método de valoración
+
+(breve — o "Sin cambios al método de valoración.")
+
+Respondé en español. Formato: Markdown conciso, sin repetir contexto que ya
+está en la Fase A anterior."""
+    )
+
+    def build_user_prompt_lite(self, company: str, previous_output: str, context=None) -> str:
+        parts = [
+            f"Compañía: **{company}**",
+            "",
+            "═══ FASE B ANTERIOR (vigente, a actualizar) ═══",
+            previous_output,
+            "═══ FIN FASE B ANTERIOR ═══",
+        ]
+        return "\n".join(parts)
+
+    # ═══════════════════════ Validación aritmética post-LLM ═══════════════════════
+
+    def run(self, company: str, context=None, mode: str = "full", previous_output: str | None = None) -> str:
+        text = super().run(company, context=context, mode=mode, previous_output=previous_output)
+        return self._validate_and_annotate(text)
+
+    def _validate_and_annotate(self, text: str) -> str:
+        data = extract_json_block(text)
+        if data is None:
+            issues = [
+                "No se encontró (o no se pudo parsear) el bloque ```json obligatorio "
+                "de la Fase B. Revisar la tabla de métricas a mano."
+            ]
+        else:
+            issues = validate_metrics_json(data)
+        if issues:
+            print(f"[validación] {self.name}: {len(issues)} inconsistencia(s) en la Fase B")
+        return annotate_with_warnings(text, issues, title="Validación automática de métricas (Fase B)")
