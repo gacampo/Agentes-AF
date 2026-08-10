@@ -7,3 +7,4 @@ dist/
 *.egg-info/
 output/
 reportes/
+checklist_pabrai*.xlsx
