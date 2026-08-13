@@ -30,6 +30,42 @@ FIRST_QUESTION_ROW = 7
 VEREDICTO_COL_OFFSET = 0  # dentro de cada bloque de 3: 0=VEREDICTO, 1=SEVERIDAD, 2=NOTAS
 FIRST_BLOCK_START_COL = 3  # columna C
 
+# El panel "DECISIÓN FINAL" y el historial de sizing van SIEMPRE con esta
+# misma estructura fija de filas *relativa a la última pregunta* (1 blanco +
+# título de panel + 5 pasos + 1 blanco + título de decisión + 6 líneas +
+# 1 blanco + título de historial + header) — sin importar cuántas preguntas
+# tenga el template. Así, si en el futuro se agrega o quita una sección de
+# preguntas (como pasó el 13-ago-2026 al sumar "12. GOBIERNO CORPORATIVO"),
+# el panel se sigue encontrando solo, sin tocar código. Los números de fila
+# NUNCA se hardcodean directamente — se calculan con _panel_rows() a partir
+# de la última fila de pregunta real del template que se esté usando.
+_PANEL_TITLE_OFFSET = 2
+_PANEL_SHOWSTOPPERS_OFFSET = 10
+_PANEL_RED_FLAGS_CRITICAS_OFFSET = 11
+_PANEL_RED_FLAGS_SECUNDARIAS_OFFSET = 12
+_PANEL_SIN_RESPONDER_OFFSET = 13
+_PANEL_SIZING_OFFSET = 14
+_PANEL_DECISION_OFFSET = 15
+_HISTORY_TITLE_OFFSET = 17
+_HISTORY_HEADER_OFFSET = 18
+
+
+def _panel_rows(questions: list["Question"]) -> dict[str, int]:
+    """Calcula las filas del panel/decisión/historial a partir de la última
+    fila de pregunta real — nunca asume un número de fila fijo, para que
+    agregar/quitar secciones de preguntas no rompa esta parte del código."""
+    last_question_row = max(q.row for q in questions) if questions else FIRST_QUESTION_ROW
+    return {
+        "showstoppers": last_question_row + _PANEL_SHOWSTOPPERS_OFFSET,
+        "red_flags_criticas": last_question_row + _PANEL_RED_FLAGS_CRITICAS_OFFSET,
+        "red_flags_secundarias": last_question_row + _PANEL_RED_FLAGS_SECUNDARIAS_OFFSET,
+        "sin_responder": last_question_row + _PANEL_SIN_RESPONDER_OFFSET,
+        "sizing": last_question_row + _PANEL_SIZING_OFFSET,
+        "decision": last_question_row + _PANEL_DECISION_OFFSET,
+        "history_title": last_question_row + _HISTORY_TITLE_OFFSET,
+        "history_header": last_question_row + _HISTORY_HEADER_OFFSET,
+    }
+
 _SECTION_HEADING_RE = re.compile(r"^\d+\.\s")
 
 # Las primeras 3 secciones del checklist son las "críticas" (Leverage, Moat,
@@ -49,8 +85,10 @@ class Question:
 
 
 def load_question_schema(wb: openpyxl.Workbook) -> list[Question]:
-    """Lee la hoja PLANTILLA y arma la lista de las 153 preguntas con su fila,
-    sección y si esa sección es una de las 3 críticas."""
+    """Lee la hoja PLANTILLA y arma la lista de TODAS las preguntas (el número
+    total no está hardcodeado — se lee dinámicamente escaneando secciones "N. "
+    y filas con ID entero) con su fila, sección, y si esa sección es una de
+    las 3 críticas (las 3 primeras que aparecen en el template, por orden)."""
     ws = wb[TEMPLATE_SHEET_NAME]
     questions: list[Question] = []
     current_section: str | None = None
@@ -192,33 +230,31 @@ def recompute_panel(ws: Worksheet, questions: list[Question], fecha_label: str) 
         "decision_sugerida": decision,
     }
 
-    ws["C191"] = "SÍ" if showstoppers else "No"
-    ws["C192"] = red_flags_criticas
-    ws["C193"] = red_flags_secundarias
-    ws["C194"] = f"{len(sin_responder)} preguntas" if sin_responder else "No"
-    ws["C195"] = sizing
-    ws["C196"] = decision
+    rows = _panel_rows(questions)
+    ws.cell(row=rows["showstoppers"], column=3, value="SÍ" if showstoppers else "No")
+    ws.cell(row=rows["red_flags_criticas"], column=3, value=red_flags_criticas)
+    ws.cell(row=rows["red_flags_secundarias"], column=3, value=red_flags_secundarias)
+    ws.cell(row=rows["sin_responder"], column=3, value=f"{len(sin_responder)} preguntas" if sin_responder else "No")
+    ws.cell(row=rows["sizing"], column=3, value=sizing)
+    ws.cell(row=rows["decision"], column=3, value=decision)
 
-    _append_sizing_history(ws, resumen)
+    _append_sizing_history(ws, resumen, rows["history_title"], rows["history_header"])
     return resumen
 
 
 _HISTORY_HEADER = ["Fecha", "Showstoppers", "Red flags críticas", "Red flags secundarias", "Sizing recomendado", "Decisión"]
 
 
-def _append_sizing_history(ws: Worksheet, resumen: dict) -> None:
+def _append_sizing_history(ws: Worksheet, resumen: dict, history_title_row: int, history_header_row: int) -> None:
     """Agrega una fila a la tabla 'Historial de sizing' (la crea si no existe),
     debajo del panel de evaluación — para ver de un vistazo cómo evolucionó
     la convicción sobre la empresa a lo largo de los refreshes."""
-    HISTORY_TITLE_ROW = 198
-    HISTORY_HEADER_ROW = 199
-
-    if ws.cell(row=HISTORY_TITLE_ROW, column=1).value != "═══ HISTORIAL DE SIZING ═══":
-        ws.cell(row=HISTORY_TITLE_ROW, column=1, value="═══ HISTORIAL DE SIZING ═══")
+    if ws.cell(row=history_title_row, column=1).value != "═══ HISTORIAL DE SIZING ═══":
+        ws.cell(row=history_title_row, column=1, value="═══ HISTORIAL DE SIZING ═══")
         for i, label in enumerate(_HISTORY_HEADER):
-            ws.cell(row=HISTORY_HEADER_ROW, column=1 + i, value=label)
+            ws.cell(row=history_header_row, column=1 + i, value=label)
 
-    next_row = HISTORY_HEADER_ROW + 1
+    next_row = history_header_row + 1
     while any(ws.cell(row=next_row, column=c).value not in (None, "") for c in range(1, 7)):
         next_row += 1
 

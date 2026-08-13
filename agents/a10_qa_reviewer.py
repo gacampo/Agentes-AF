@@ -57,6 +57,14 @@ Regla de aplicabilidad de checks:
   Falla si una afirmación cualitativa (descuento, premium, margen de seguridad)
   contradice los números presentados. Ej: decir "descuento al NAV" cuando
   precio > NAV-mid es FALLA BLOQUEANTE.
+- QA-18 (descuento de holding) es N/A únicamente si la empresa NO es un
+  holding/conglomerado/trust/REIT con NAV o valor intrínseco autoevaluado
+  publicado por la propia compañía — para cualquier empresa de ese tipo se
+  evalúa SIEMPRE. Falla (BLOQUEANTE) si algún escenario de la sección 8,
+  incluido el optimista, asume que el mercado converge al 100% o más de esa
+  cifra sin que la tesis cite evidencia concreta de que el descuento de esa
+  empresa (o de un catalizador comparable ya ejecutado, ej. un spin-off que
+  buscaba resolverlo) cerró de forma sostenida en el pasado.
 
 Formato de salida: tabla con columnas ID | Resultado | Evidencia, seguida del
 veredicto final en una línea destacada."""

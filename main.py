@@ -250,6 +250,12 @@ def run_analysis(
 
     _record_history(company, mode, results)
 
+    try:
+        from utils.escenarios_consolidados import update_escenarios_consolidados
+        update_escenarios_consolidados(company, results, pabrai_resumen=results.pop("__pabrai_resumen__", None))
+    except Exception as e:  # noqa: BLE001 - complemento, nunca debe romper la corrida principal
+        console.print(f"  [yellow]⚠ No se pudo actualizar escenarios_consolidados.json: {e}[/yellow]\n")
+
     if base_path:
         _save_full_report(company, results, base_path)
 
@@ -288,13 +294,16 @@ def _run_pabrai_checklist(
     pabrai_xlsx: str | None,
     pabrai_sheet: str | None,
     mode: str,
-) -> str | None:
+) -> tuple[str | None, dict | None]:
     """Corre el Agente 11 (full o lite) si se configuró --pabrai-xlsx. Es
     complementario al pipeline principal: si algo falla acá (archivo
     corrupto, hoja inexistente en lite, etc.) se loguea un warning claro y
-    se sigue — no debe tirar abajo una tesis que ya se generó bien."""
+    se sigue — no debe tirar abajo una tesis que ya se generó bien.
+    Devuelve (report, resumen): resumen es el dict de apply_full_checklist/
+    apply_lite_refresh (sizing_recomendado, red_flags_criticas, etc.), usado
+    también para la alerta del checklist Pabrai en escenarios_consolidados.json."""
     if not pabrai_xlsx:
-        return None
+        return None, None
 
     sheet_name = pabrai_sheet or company
     fecha_label = fecha_precio or time.strftime("%d-%b-%Y")
@@ -328,7 +337,7 @@ def _run_pabrai_checklist(
                         "corré primero --mode full con --pabrai-xlsx para poder hacer el refresh. "
                         "Se omite el Agente 11 en esta corrida.[/yellow]\n"
                     )
-                    return None
+                    return None, None
                 report, resumen = agent11.run_lite(
                     company,
                     context=context,
@@ -341,10 +350,10 @@ def _run_pabrai_checklist(
         console.print(f"  ✓ {agent11.name} completado ({elapsed:.1f}s)\n")
         if base_path:
             _save_agent(base_path, agent11.name, company, report)
-        return report
+        return report, resumen
     except Exception as e:  # noqa: BLE001 - deliberadamente amplio: es un paso opcional
         console.print(f"  [bold red]⚠ Checklist Pabrai falló, se omite: {e}[/bold red]\n")
-        return None
+        return None, None
 
 
 def run_analysis_full(
@@ -411,12 +420,13 @@ def run_analysis_full(
     agent10 = QAReviewer()
     results[agent10.name] = run_or_load(agent10, results)
 
-    pabrai_report = _run_pabrai_checklist(
+    pabrai_report, pabrai_resumen = _run_pabrai_checklist(
         company, results, base_path, price_injection, precio_actual, fecha_precio,
         pabrai_xlsx, pabrai_sheet, mode="full",
     )
     if pabrai_report:
         results["Pabrai Checklist"] = pabrai_report
+    results["__pabrai_resumen__"] = pabrai_resumen
 
     return results
 
@@ -529,12 +539,13 @@ def run_analysis_lite(
     if base_path:
         _save_agent(base_path, agent10.name, company, results[agent10.name])
 
-    pabrai_report = _run_pabrai_checklist(
+    pabrai_report, pabrai_resumen = _run_pabrai_checklist(
         company, results, base_path, price_injection, precio_actual, fecha_precio,
         pabrai_xlsx, pabrai_sheet, mode="lite",
     )
     if pabrai_report:
         results["Pabrai Checklist"] = pabrai_report
+    results["__pabrai_resumen__"] = pabrai_resumen
 
     return results
 

@@ -1,6 +1,7 @@
 """Agente 11: Pabrai Checklist — detector de red flags.
 
-Completa el checklist de 153 preguntas (11 secciones) inspirado en el método
+Completa el checklist de red flags (11 secciones cuantitativas/cualitativas +
+una sección adicional de Gobierno Corporativo) inspirado en el método
 de Mohnish Pabrai: NO es un scorecard, es un detector de red flags/showstoppers
 que determina el sizing recomendado de la posición.
 
@@ -9,7 +10,8 @@ JSON estructurado (id, veredicto, severidad, notas por pregunta) que después
 un módulo de código puro (utils/pabrai_xlsx.py) escribe en el .xlsx del
 usuario, recalculando el panel de evaluación de forma determinística.
 
-Full: responde las 153 preguntas — usado para una empresa nueva.
+Full: responde TODAS las preguntas de la plantilla (el número total se lee
+dinámicamente del template, no está hardcodeado) — usado para una empresa nueva.
 Lite: responde SOLO las preguntas de las secciones numéricas (Apalancamiento,
 Valoración, Contabilidad, y Ciclicidad si hay trigger macro) — usado en el
 refresh trimestral, junto con los Agentes 4/7/8-lite. Las secciones
@@ -69,7 +71,7 @@ Reglas estrictas:
 
 class PabraiChecklistAgent(BaseAgent):
     name = "Pabrai Checklist"
-    description = "Completa el checklist de red flags de Mohnish Pabrai (153 preguntas, 11 secciones)."
+    description = "Completa el checklist de red flags de Mohnish Pabrai (11 secciones + Gobierno Corporativo)."
     max_tokens = 16384
 
     system_prompt = (
@@ -92,6 +94,17 @@ Para cada pregunta, evaluá honestamente basándote en evidencia concreta de
 ESTA empresa. Si el análisis previo no cubre lo necesario para responder con
 evidencia real, decilo explícitamente en vez de inventar — ver instrucciones
 de formato sobre qué hacer con preguntas sin evidencia suficiente.
+
+La última sección (Gobierno Corporativo, preguntas G1-G6) usa el framework
+OECD Principles + UK Corporate Governance Code + criterios ISS/Glass Lewis:
+independencia del board, composición, derechos de minoritarios, alineación de
+compensación, transparencia/auditoría, e historial en decisiones clave. Es
+una sección CUALITATIVA que no cambia trimestre a trimestre (no forma parte
+de los refreshes lite). En el campo "notas" de la última pregunta (G6),
+además de la evidencia concreta, agregá un resumen de una frase con un rating
+de letra (A/B/C/D, con +/- si corresponde) para todo el bloque de gobierno —
+ej. "...RATING GOVERNANCE B+: gobierno sólido, sin accionista controlante,
+compensación atada a ROIC real."
 """
         + _JSON_FORMAT_INSTRUCTIONS
     )
@@ -123,7 +136,7 @@ decilo explícitamente al principio con el texto "🚩 RECOMIENDO REVISAR
     )
 
     def build_user_prompt(self, company: str) -> str:
-        return f"Compañía a analizar: **{company}**\n\nCompletá el checklist completo (153 preguntas)."
+        return f"Compañía a analizar: **{company}**\n\nCompletá el checklist completo (todas las preguntas de la plantilla, incluida la sección de Gobierno Corporativo)."
 
     def build_user_prompt_lite(self, company: str, previous_output: str, context=None) -> str:
         return (
@@ -146,15 +159,16 @@ decilo explícitamente al principio con el texto "🚩 RECOMIENDO REVISAR
         summary_line: str,
         fecha_label: str,
     ) -> tuple[str, dict]:
-        """Corrida FULL: arma el listado de 153 preguntas desde la plantilla del
-        propio workbook, se lo pasa al LLM vía contexto, valida la respuesta, y
-        la escribe en el .xlsx. Retorna (texto_para_reporte, resumen_panel)."""
+        """Corrida FULL: arma el listado completo de preguntas desde la plantilla del
+        propio workbook (número dinámico, no hardcodeado), se lo pasa al LLM vía
+        contexto, valida la respuesta, y la escribe en el .xlsx. Retorna
+        (texto_para_reporte, resumen_panel)."""
         wb = openpyxl.load_workbook(workbook_path)
         questions = load_question_schema(wb)
         expected_ids = {q.id for q in questions}
 
         preguntas_texto = "\n".join(f"{q.id}. [{q.seccion}] {q.pregunta}" for q in questions)
-        full_context = {**context, "PREGUNTAS A RESPONDER (las 153, checklist completo)": preguntas_texto}
+        full_context = {**context, f"PREGUNTAS A RESPONDER ({len(questions)}, checklist completo)": preguntas_texto}
 
         raw = self.run(company, context=full_context, mode="full")
         data = extract_json_block(raw)

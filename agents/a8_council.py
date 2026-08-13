@@ -158,6 +158,26 @@ Presentá una tabla resumen clara:
 
 No hace falta mostrar el DCF celda por celda, pero sí explicar la lógica de forma casi completa
 y transparente para que el lector pueda seguir y verificar el razonamiento.
+
+⚠️ REGLA OBLIGATORIA PARA HOLDINGS, CONGLOMERADOS Y CIERRES DE FONDO/TRUST:
+si la empresa es un holding diversificado, un conglomerado, un REIT/trust, o cualquier
+estructura donde exista un "valor intrínseco" o NAV que la propia compañía calcula y
+publica (ej. "Plan Value", "Book Value", NAV por acción, sum-of-the-parts), tratá esa
+cifra como el TECHO teórico de una banda, no como el precio esperado de mercado.
+Investigá (o, si no tenés acceso a búsqueda web en este contexto, dejalo marcado
+explícitamente como pendiente de verificar) si esa empresa —o estructuras comparables
+del mismo tipo— cotizó HISTÓRICAMENTE con un descuento persistente frente a esa cifra
+autoevaluada. Los holdings diversificados con activos difíciles de verificar de forma
+independiente casi siempre cotizan con un descuento estructural que NO desaparece solo
+porque haya un catalizador puntual (spin-offs, simplificaciones societarias, etc. suelen
+achicar el descuento parcialmente, casi nunca cerrarlo del todo — si hay evidencia de un
+catalizador similar ya ejecutado en el pasado que no cerró el descuento, es la evidencia
+más fuerte posible de que hay que seguir aplicando un descuento en TODOS los escenarios).
+En consecuencia: NINGÚN escenario —ni siquiera el optimista— debe asumir que el mercado
+paga el 100% (o más) del NAV/valor intrínseco autoevaluado, salvo que tengas evidencia
+concreta y specífica de que el descuento de ESA empresa puntual ya cerró de forma
+sostenida en el pasado reciente. Explicitá el % de descuento que estás asumiendo en cada
+escenario y por qué.
 """
         + _JSON_BLOCK_INSTRUCTIONS
         + """
@@ -220,6 +240,12 @@ Tu única tarea: reescribir SOLO la sección 8 (tres escenarios + tabla de TIR)
 y la sección 9 (conclusión + rating), usando el precio y los datos nuevos.
 Las secciones 1-7 NO se tocan — no las reescribas, no las repitas, asumí que
 siguen vigentes tal cual están en la tesis anterior.
+
+⚠️ Si la tesis anterior es de un holding/conglomerado/trust con NAV o valor
+intrínseco autoevaluado por la propia empresa: verificá que los escenarios
+de la tesis anterior NO hayan asumido un cierre total del descuento de
+mercado en ningún escenario (ver regla de la sección 8 en modo full). Si la
+tesis anterior sí lo asumía, corregilo en este refresh y decilo explícitamente.
 
 Si el cambio de precio o de datos es tan grande que además ameritaría revisar
 supuestos cualitativos (moat, management) que viven en las secciones 1-7,

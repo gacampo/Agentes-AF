@@ -11,6 +11,7 @@ from utils.pabrai_xlsx import (
     apply_full_checklist,
     apply_lite_refresh,
     load_question_schema,
+    _panel_rows,
 )
 
 
@@ -104,6 +105,16 @@ def test_apply_lite_refresh_sin_full_previo_falla_con_error_claro(mini_pabrai_wo
 
 
 def test_historial_de_sizing_acumula_una_fila_por_corrida(mini_pabrai_workbook):
+    # Las filas del panel/historial ya NO son un número fijo (ver
+    # utils/pabrai_xlsx._panel_rows): se calculan a partir de la última fila
+    # de pregunta real del template, para no romper si se agrega/quita una
+    # sección de preguntas (como pasó con "12. GOBIERNO CORPORATIVO"). Este
+    # test recalcula esa misma fila en vez de hardcodearla, así sigue siendo
+    # una prueba real del comportamiento y no un valor mágico congelado.
+    wb0 = openpyxl.load_workbook(mini_pabrai_workbook)
+    questions0 = load_question_schema(wb0)
+    history_header_row = _panel_rows(questions0)["history_header"]
+
     answers = _answers({i: "OK" for i in range(1, 10)})
     apply_full_checklist(str(mini_pabrai_workbook), "TESTCO", "H", "S", answers, "FULL-2026")
     apply_lite_refresh(str(mini_pabrai_workbook), "TESTCO", _answers({1: "OK"}), "Q1-2026")
@@ -111,6 +122,7 @@ def test_historial_de_sizing_acumula_una_fila_por_corrida(mini_pabrai_workbook):
 
     wb2 = openpyxl.load_workbook(mini_pabrai_workbook)
     ws = wb2["TESTCO"]
-    fechas = [ws.cell(row=r, column=1).value for r in range(200, 204)]
+    data_start = history_header_row + 1
+    fechas = [ws.cell(row=r, column=1).value for r in range(data_start, data_start + 4)]
     fechas = [f for f in fechas if f]
     assert fechas == ["FULL-2026", "Q1-2026", "Q2-2026"]
